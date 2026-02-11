@@ -1,8 +1,16 @@
 
-// MongoDB Atlas Data API Configuration
+/**
+ * MongoDB Atlas Data API Service
+ * 
+ * NOTA DE SEGURANÇA: A chave abaixo parece ser uma senha. 
+ * Recomenda-se usar uma 'API Key' gerada em App Services -> Data API.
+ * 
+ * RESOLUÇÃO DE CORS (Vercel):
+ * No painel do MongoDB Atlas, acesse App Services -> Data API -> Settings 
+ * e adicione 'https://quest-rank.vercel.app' em 'Allowed Origins'.
+ */
+
 const MONGODB_DATA_API_URL = "https://sa-east-1.aws.data.mongodb-api.com/app/data-vkvvj/endpoint/data/v1/action";
-// NOTA: Esta chave parece ser uma senha de banco de dados. 
-// A Data API requer uma 'API Key' gerada em App Services -> Data API no Atlas.
 const MONGODB_API_KEY: string = "o7ePZQ5IUmvnTjLg"; 
 const CLUSTER_NAME = "EdgarFaial";
 const DATABASE_NAME = "rankflow";
@@ -16,15 +24,15 @@ const COLLECTIONS = {
 
 class MongoDBService {
   private online: boolean = true;
+  private networkErrorDetected: boolean = false;
 
   private isConfigured(): boolean {
-    // Verifica se a chave foi alterada do placeholder e tem um tamanho mínimo
     return MONGODB_API_KEY !== "SUA_API_KEY_AQUI" && MONGODB_API_KEY.length > 5;
   }
 
   private async fetchAction(action: string, collection: string, body: any) {
-    if (!this.isConfigured() || !this.online) {
-      throw new Error('OFFLINE');
+    if (!this.isConfigured() || !this.online || this.networkErrorDetected) {
+      throw new Error('OFFLINE_OR_CORS');
     }
 
     try {
@@ -48,8 +56,9 @@ class MongoDBService {
 
       return await response.json();
     } catch (error) {
-      // Se falhar por rede (CORS ou sem internet), marca como offline para evitar novas tentativas pesadas
+      // Se falhar por erro de tipo (TypeError), geralmente é CORS ou rede bloqueada
       if (error instanceof TypeError) {
+        this.networkErrorDetected = true;
         this.online = false;
       }
       throw error;
@@ -60,9 +69,10 @@ class MongoDBService {
     if (!this.isConfigured()) return false;
     
     try {
-      // Tenta uma operação leve de leitura para testar a rota e o CORS
+      // Teste silencioso de conexão (Health Check)
       await this.fetchAction('findOne', COLLECTIONS.SETTINGS, { filter: { _id: 'health_check' } });
       this.online = true;
+      this.networkErrorDetected = false;
       return true;
     } catch (e) {
       this.online = false;
@@ -70,67 +80,83 @@ class MongoDBService {
     }
   }
 
-  // --- Operações Silenciosas ---
-  
+  // --- Métodos de sincronia com tratamento silencioso de erros ---
+
   async getAllTasks() {
-    const res = await this.fetchAction('find', COLLECTIONS.TASKS, { filter: {} });
-    return (res.documents || []).map((doc: any) => ({ 
-      ...doc, 
-      id: doc.id || doc._id?.toString() || Math.random().toString(36).substr(2, 9) 
-    }));
+    try {
+      const res = await this.fetchAction('find', COLLECTIONS.TASKS, { filter: {} });
+      return (res.documents || []).map((doc: any) => ({ 
+        ...doc, 
+        id: doc.id || doc._id?.toString() || Math.random().toString(36).substr(2, 9) 
+      }));
+    } catch { return null; }
   }
 
   async saveTasks(tasks: any[]) {
-    await this.fetchAction('deleteMany', COLLECTIONS.TASKS, { filter: {} });
-    if (tasks.length > 0) {
-      const sanitized = tasks.map(({ id, ...rest }) => ({ ...rest, id }));
-      await this.fetchAction('insertMany', COLLECTIONS.TASKS, { documents: sanitized });
-    }
+    try {
+      await this.fetchAction('deleteMany', COLLECTIONS.TASKS, { filter: {} });
+      if (tasks.length > 0) {
+        const sanitized = tasks.map(({ id, ...rest }) => ({ ...rest, id }));
+        await this.fetchAction('insertMany', COLLECTIONS.TASKS, { documents: sanitized });
+      }
+    } catch { /* Fail silently */ }
   }
 
   async getAllHabits() {
-    const res = await this.fetchAction('find', COLLECTIONS.HABITS, { filter: {} });
-    return (res.documents || []).map((doc: any) => ({ 
-      ...doc, 
-      id: doc.id || doc._id?.toString() || Math.random().toString(36).substr(2, 9) 
-    }));
+    try {
+      const res = await this.fetchAction('find', COLLECTIONS.HABITS, { filter: {} });
+      return (res.documents || []).map((doc: any) => ({ 
+        ...doc, 
+        id: doc.id || doc._id?.toString() || Math.random().toString(36).substr(2, 9) 
+      }));
+    } catch { return null; }
   }
 
   async saveHabits(habits: any[]) {
-    await this.fetchAction('deleteMany', COLLECTIONS.HABITS, { filter: {} });
-    if (habits.length > 0) {
-      const sanitized = habits.map(({ id, ...rest }) => ({ ...rest, id }));
-      await this.fetchAction('insertMany', COLLECTIONS.HABITS, { documents: sanitized });
-    }
+    try {
+      await this.fetchAction('deleteMany', COLLECTIONS.HABITS, { filter: {} });
+      if (habits.length > 0) {
+        const sanitized = habits.map(({ id, ...rest }) => ({ ...rest, id }));
+        await this.fetchAction('insertMany', COLLECTIONS.HABITS, { documents: sanitized });
+      }
+    } catch { /* Fail silently */ }
   }
 
   async getAllNotes() {
-    const res = await this.fetchAction('find', COLLECTIONS.NOTES, { filter: {} });
-    return (res.documents || []).map((doc: any) => ({ 
-      ...doc, 
-      id: doc.id || doc._id?.toString() || Math.random().toString(36).substr(2, 9) 
-    }));
+    try {
+      const res = await this.fetchAction('find', COLLECTIONS.NOTES, { filter: {} });
+      return (res.documents || []).map((doc: any) => ({ 
+        ...doc, 
+        id: doc.id || doc._id?.toString() || Math.random().toString(36).substr(2, 9) 
+      }));
+    } catch { return null; }
   }
 
   async saveNotes(notes: any[]) {
-    await this.fetchAction('deleteMany', COLLECTIONS.NOTES, { filter: {} });
-    if (notes.length > 0) {
-      const sanitized = notes.map(({ id, ...rest }) => ({ ...rest, id }));
-      await this.fetchAction('insertMany', COLLECTIONS.NOTES, { documents: sanitized });
-    }
+    try {
+      await this.fetchAction('deleteMany', COLLECTIONS.NOTES, { filter: {} });
+      if (notes.length > 0) {
+        const sanitized = notes.map(({ id, ...rest }) => ({ ...rest, id }));
+        await this.fetchAction('insertMany', COLLECTIONS.NOTES, { documents: sanitized });
+      }
+    } catch { /* Fail silently */ }
   }
 
   async getAllSettings() {
-    const res = await this.fetchAction('findOne', COLLECTIONS.SETTINGS, { filter: { _id: 'user_settings' } });
-    return res.document || null;
+    try {
+      const res = await this.fetchAction('findOne', COLLECTIONS.SETTINGS, { filter: { _id: 'user_settings' } });
+      return res.document || null;
+    } catch { return null; }
   }
 
   async saveSettings(settings: any) {
-    await this.fetchAction('updateOne', COLLECTIONS.SETTINGS, {
-      filter: { _id: 'user_settings' },
-      update: { $set: { ...settings, updatedAt: new Date().toISOString() } },
-      upsert: true
-    });
+    try {
+      await this.fetchAction('updateOne', COLLECTIONS.SETTINGS, {
+        filter: { _id: 'user_settings' },
+        update: { $set: { ...settings, updatedAt: new Date().toISOString() } },
+        upsert: true
+      });
+    } catch { /* Fail silently */ }
   }
 }
 
