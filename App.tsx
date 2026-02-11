@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { 
   Plus, LayoutDashboard, ListOrdered, Sparkles, BrainCircuit, 
@@ -40,8 +41,8 @@ const App: React.FC = () => {
   const [themeName, setThemeName] = useState<ThemeName>(() => (localStorage.getItem('rankflow_theme_name') as ThemeName) || 'default');
   const [overrideBgUrl, setOverrideBgUrl] = useState(() => localStorage.getItem('rankflow_bg_override') || '');
   
-  // AI State
-  const [isAiEnabled, setIsAiEnabled] = useState(() => localStorage.getItem('rankflow_ai_enabled') !== 'false');
+  // AI State (Temporariamente desativado)
+  const [isAiEnabled, setIsAiEnabled] = useState(false);
   const [isAIThinking, setIsAIThinking] = useState(false);
   const [aiAudit, setAiAudit] = useState<{ summary: string; suggestions: {taskId: string, improvement: string}[] } | null>(null);
 
@@ -63,7 +64,7 @@ const App: React.FC = () => {
   const [newTitle, setNewTitle] = useState('');
   const [newDesc, setNewDesc] = useState('');
   const [newDueDate, setNewDueDate] = useState('');
-  const [useAiForThisTask, setUseAiForThisTask] = useState(true);
+  const [useAiForThisTask, setUseAiForThisTask] = useState(false);
 
   const [habitTitle, setHabitTitle] = useState('');
   const [habitFreq, setHabitFreq] = useState<HabitFrequency>('daily');
@@ -130,7 +131,6 @@ const App: React.FC = () => {
     
     saveSettings(settings);
     
-    // Também manter no localStorage para fallback e persistência entre sessões
     localStorage.setItem('rankflow_mode', themeMode);
     localStorage.setItem('rankflow_theme_name', themeName);
     localStorage.setItem('rankflow_bg_override', overrideBgUrl);
@@ -250,21 +250,12 @@ const App: React.FC = () => {
     setNewTitle('');
     setNewDesc('');
     setNewDueDate('');
-    setUseAiForThisTask(isAiEnabled);
-  }, [isAiEnabled]);
+    setUseAiForThisTask(false);
+  }, []);
 
   const addTask = useCallback(async () => {
     if (!newTitle.trim()) return;
     let description = newDesc;
-
-    if (isAiEnabled && useAiForThisTask) {
-        setIsAIThinking(true);
-        const breakdown = await getTaskBreakdown(newTitle, newDesc);
-        setIsAIThinking(false);
-        if (breakdown) {
-          description += `\n\n💡 Detalhamento IA:\n${breakdown.subtasks.map((s: string) => `• ${s}`).join('\n')}\n\n🧠 Raciocínio: ${breakdown.reasoning}`;
-        }
-    }
 
     const newTask: Task = {
       id: Math.random().toString(36).substr(2, 9),
@@ -280,7 +271,7 @@ const App: React.FC = () => {
     setTasks(prev => [...prev, newTask]);
     resetForm();
     setIsModalOpen(false);
-  }, [newTitle, newDesc, newDueDate, tasks.length, isAiEnabled, useAiForThisTask, resetForm]);
+  }, [newTitle, newDesc, newDueDate, tasks.length, resetForm]);
 
   const toggleStatus = (id: string) => {
     setTasks(prev => prev.map(t => t.id === id ? {...t, status: t.status === TaskStatus.DONE ? TaskStatus.TODO : TaskStatus.DONE} : t));
@@ -347,11 +338,8 @@ const App: React.FC = () => {
   };
 
   const handleAudit = async () => {
-    if (!isAiEnabled || tasks.length === 0) return;
-    setIsAIThinking(true);
-    const audit = await getRankingAudit(tasks);
-    setAiAudit(audit);
-    setIsAIThinking(false);
+    // Temporariamente desativado
+    return;
   };
 
   const moveTask = useCallback((taskId: string, direction: 'up' | 'down') => {
@@ -414,7 +402,6 @@ const App: React.FC = () => {
     );
   }
 
-  // Error banner if MongoDB fails
   const showMongoErrorBanner = mongoError && !isMongoLoading;
 
   return (
@@ -445,19 +432,13 @@ const App: React.FC = () => {
           ))}
         </nav>
 
-        {isAiEnabled && view === 'tasks' && tasks.length > 0 && (
-          <button onClick={handleAudit} disabled={isAIThinking}
-            className="mb-6 w-full flex items-center justify-center gap-3 px-5 py-4 rounded-2xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/30 hover:bg-indigo-500/20 transition-all font-black uppercase text-xs tracking-widest disabled:opacity-50">
-            {isAIThinking ? <Loader2 size={18} className="animate-spin" /> : <BrainCircuit size={18} />} Auditoria IA
-          </button>
-        )}
+        {/* Auditoria IA temporariamente removida */}
         
         <div className="pt-8 border-t border-white/10 opacity-40 text-[10px] text-center font-black uppercase tracking-[0.2em]">
           FLOW RADICAL
         </div>
       </aside>
 
-      {/* Rest of the component remains exactly the same from here... */}
       {/* Main Container */}
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden z-10 relative">
         <header className={`${theme.headerBg} border-b ${theme.border} px-8 py-5 flex items-center justify-between z-10 backdrop-blur-md bg-opacity-80`}>
@@ -483,26 +464,7 @@ const App: React.FC = () => {
           </div>
         </header>
 
-        {/* Audit Panel */}
-        {aiAudit && view === 'tasks' && (
-          <div className="mx-8 mt-6 p-6 rounded-3xl bg-indigo-600 text-white shadow-2xl animate-in slide-in-from-top-4 duration-500 relative overflow-hidden">
-             <div className="absolute top-0 right-0 p-4 opacity-10"><Sparkles size={120} /></div>
-             <button onClick={() => setAiAudit(null)} className="absolute top-4 right-4 hover:bg-white/20 p-1 rounded-full"><X size={20}/></button>
-             <div className="flex items-center gap-3 mb-4">
-                <BrainCircuit size={24} />
-                <h3 className="text-lg font-black uppercase tracking-wider">Auditoria IA</h3>
-             </div>
-             <p className="text-indigo-100 mb-6 font-medium leading-relaxed">{aiAudit.summary}</p>
-             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {aiAudit.suggestions.map((s, i) => (
-                  <div key={i} className="bg-white/10 backdrop-blur-sm p-4 rounded-2xl border border-white/20 flex gap-3 items-start">
-                    <TrendingUp size={18} className="shrink-0 mt-1" />
-                    <span className="text-sm font-bold">{s.improvement}</span>
-                  </div>
-                ))}
-             </div>
-          </div>
-        )}
+        {/* Audit Panel (Temporariamente removido) */}
 
         {/* Mobile Nav */}
         <div className={`md:hidden flex ${theme.headerBg} border-b ${theme.border} p-2`}>
@@ -719,25 +681,7 @@ const App: React.FC = () => {
                   </div>
                </div>
 
-               <div className={`${theme.cardBg} border ${theme.border} rounded-[3rem] overflow-hidden shadow-2xl backdrop-blur-md`}>
-                  <div className={`p-8 border-b ${theme.border} flex items-center justify-between`}>
-                     <div>
-                       <h3 className={`text-xl font-black ${theme.textPrimary} tracking-tighter`}>Inteligência Artificial</h3>
-                       <p className={`text-xs ${theme.textSecondary} font-medium`}>Suporte estratégico Gemini.</p>
-                     </div>
-                     <button onClick={() => setIsAiEnabled(!isAiEnabled)} 
-                       className={`p-3 rounded-2xl transition-all ${isAiEnabled ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-400 dark:bg-white/5'}`}>
-                       <BrainCircuit size={20} />
-                     </button>
-                  </div>
-                  <div className="p-8">
-                    <p className={`text-sm ${theme.textSecondary} font-medium`}>
-                      {isAiEnabled 
-                        ? "IA ativada: detalhamento de missões e auditoria de fluxo."
-                        : "IA desativada. Ative para otimização estratégica."}
-                    </p>
-                  </div>
-               </div>
+               {/* IA Oculta temporariamente */}
 
                <div className={`${theme.cardBg} border ${theme.border} rounded-[3rem] overflow-hidden shadow-2xl backdrop-blur-md`}>
                   <div className={`p-8 border-b ${theme.border} flex items-center justify-between`}>
@@ -788,7 +732,7 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      {/* Modals (exactly the same as before) */}
+      {/* Modal Nova Missão - IA checkbox removido */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-xl bg-black/40">
           <div className={`relative ${theme.cardBg} w-full max-w-xl rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in duration-300`}>
@@ -803,18 +747,11 @@ const App: React.FC = () => {
                 <label className="text-[10px] font-black uppercase tracking-widest opacity-50 ml-2">Vencimento</label>
                 <input type="date" value={newDueDate} onChange={e => setNewDueDate(e.target.value)} className={`w-full p-6 rounded-3xl border ${theme.border} ${theme.inputBg} ${theme.textPrimary} font-bold outline-none`} />
               </div>
-              {isAiEnabled && (
-                <div className="flex items-center gap-3 p-4 bg-indigo-500/5 rounded-3xl border border-indigo-500/10">
-                  <input type="checkbox" id="ai" checked={useAiForThisTask} onChange={e => setUseAiForThisTask(e.target.checked)} className="w-5 h-5 accent-indigo-500" />
-                  <label htmlFor="ai" className="text-sm font-black uppercase text-indigo-500 cursor-pointer">Detalhamento IA</label>
-                </div>
-              )}
             </div>
             <div className="p-10 bg-slate-50 dark:bg-black/20 flex gap-4">
               <button onClick={() => { setIsModalOpen(false); resetForm(); }} className={`flex-1 p-6 font-black uppercase text-xs tracking-widest ${theme.textSecondary}`}>Cancelar</button>
-              <button onClick={addTask} disabled={isAIThinking} className={`flex-[2] p-6 ${theme.accent} text-white font-black uppercase text-xs tracking-[0.2em] rounded-[2rem] shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-2`}>
-                {isAIThinking && <Loader2 size={16} className="animate-spin" />}
-                {isAIThinking ? 'PROCESSANDO...' : 'INICIAR FLOW'}
+              <button onClick={addTask} className={`flex-[2] p-6 ${theme.accent} text-white font-black uppercase text-xs tracking-[0.2em] rounded-[2rem] shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-2`}>
+                INICIAR FLOW
               </button>
             </div>
           </div>
