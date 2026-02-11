@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   Plus, LayoutDashboard, ListOrdered, Sparkles, BrainCircuit, 
@@ -129,7 +128,6 @@ const App: React.FC = () => {
     setIsHabitModalOpen(false);
   };
 
-  // Fix: Added toggleHabit function to mark/unmark habit completion for today
   const toggleHabit = (id: string) => {
     const today = new Date().toISOString().split('T')[0];
     setHabits(prev => prev.map(h => {
@@ -146,7 +144,6 @@ const App: React.FC = () => {
     }));
   };
 
-  // Fix: Added deleteHabit function to remove a habit from the state
   const deleteHabit = (id: string) => {
     setHabits(prev => prev.filter(h => h.id !== id));
   };
@@ -378,7 +375,7 @@ const App: React.FC = () => {
           {view === 'settings' && (
             <div className="max-w-2xl mx-auto space-y-10">
                <div className={`${theme.cardBg} border ${theme.border} rounded-[3rem] overflow-hidden shadow-2xl backdrop-blur-md`}>
-                  <div className="p-10 border-b ${theme.border} flex items-center justify-between">
+                  <div className={`p-10 border-b ${theme.border} flex items-center justify-between`}>
                      <div>
                        <h3 className={`text-2xl font-black ${theme.textPrimary} tracking-tighter`}>Aparência</h3>
                        <p className={`text-sm ${theme.textSecondary} font-medium`}>Molde o RankFlow ao seu estilo.</p>
@@ -414,11 +411,11 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      {/* Modals are kept similar but with traduced labels and stylized buttons */}
+      {/* Modal de Nova Tarefa */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-xl bg-black/40">
           <div className={`relative ${theme.cardBg} w-full max-w-xl rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in duration-300`}>
-            <div className="p-10 border-b ${theme.border} flex justify-between items-center bg-gradient-to-r from-indigo-500/10 to-transparent">
+            <div className={`p-10 border-b ${theme.border} flex justify-between items-center bg-gradient-to-r from-indigo-500/10 to-transparent`}>
               <h3 className={`text-3xl font-black ${theme.textPrimary} tracking-tighter`}>Nova Tarefa</h3>
               <button onClick={() => setIsModalOpen(false)} className="hover:rotate-90 transition-transform"><X size={32}/></button>
             </div>
@@ -442,11 +439,11 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* Habit Modal - Similar translation/polish */}
+      {/* Modal de Novo Hábito */}
       {isHabitModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-xl bg-black/40">
            <div className={`relative ${theme.cardBg} w-full max-w-xl rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in duration-300`}>
-            <div className="p-10 border-b ${theme.border} flex justify-between items-center bg-gradient-to-r from-emerald-500/10 to-transparent">
+            <div className={`p-10 border-b ${theme.border} flex justify-between items-center bg-gradient-to-r from-emerald-500/10 to-transparent`}>
               <h3 className={`text-3xl font-black ${theme.textPrimary} tracking-tighter`}>Novo Hábito</h3>
               <button onClick={() => setIsHabitModalOpen(false)} className="hover:rotate-90 transition-transform"><X size={32}/></button>
             </div>
