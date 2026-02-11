@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Task, RankingCriterion } from '../types';
 import { ChevronUp, ChevronDown, Trash2, CheckCircle2, Circle, Calendar } from 'lucide-react';
@@ -56,7 +55,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
               {task.dueDate && (
                 <div className="flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
                   <Calendar size={12} />
-                  <span>Due: {new Date(task.dueDate + 'T00:00:00').toLocaleDateString()}</span>
+                  <span>Vencimento: {new Date(task.dueDate + 'T00:00:00').toLocaleDateString()}</span>
                 </div>
               )}
             </div>
@@ -68,7 +67,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
             </button>
           </div>
           <p className="text-sm text-slate-500 dark:text-slate-400 line-clamp-2 mb-3 mt-1 italic">
-            {task.description || "No description provided."}
+            {task.description || "Nenhuma descrição fornecida."}
           </p>
           
           <div className="flex items-center justify-between">

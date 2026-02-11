@@ -1,9 +1,8 @@
-
 import React from 'react';
-import { RankingConfig } from '../types';
+import { RankingCriterion } from '../types';
 
 interface RankerHeaderProps {
-  config: RankingConfig;
+  config: { id: RankingCriterion; label: string; color: string };
   isActive: boolean;
   onClick: () => void;
 }

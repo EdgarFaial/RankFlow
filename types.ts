@@ -1,38 +1,48 @@
-
 export enum TaskStatus {
   TODO = 'todo',
-  IN_PROGRESS = 'in_progress',
   DONE = 'done'
 }
+
+export type RankingCriterion = 'priorityRank' | 'difficultyRank' | 'urgencyRank';
+
+export type AppView = 'tasks' | 'habits' | 'notes' | 'calendar' | 'dashboard' | 'settings';
+
+export type HabitFrequency = 'daily' | 'weekly' | 'weekdays' | 'weekend';
 
 export interface Task {
   id: string;
   title: string;
   description: string;
-  priorityRank: number; // 1 is highest
-  difficultyRank: number; // 1 is hardest
-  urgencyRank: number; // 1 is most urgent
+  priorityRank: number;
+  difficultyRank: number;
+  urgencyRank: number;
   status: TaskStatus;
   createdAt: number;
-  dueDate?: string; // ISO string YYYY-MM-DD
+  dueDate?: string;
+  lastNotified?: number; // Timestamp of last notification
+  googleEventId?: string; // ID of the synced Google Calendar event
 }
-
-export type RankingCriterion = 'priorityRank' | 'difficultyRank' | 'urgencyRank';
-
-export interface RankingConfig {
-  id: RankingCriterion;
-  label: string;
-  color: string;
-}
-
-export type AppView = 'tasks' | 'habits' | 'dashboard' | 'calendar' | 'settings';
-
-export type HabitFrequency = 'daily' | 'weekly' | 'weekdays' | 'weekend';
 
 export interface Habit {
   id: string;
   title: string;
   frequency: HabitFrequency;
-  completedDates: string[]; // Array of ISO strings YYYY-MM-DD
+  completedDates: string[];
   createdAt: number;
+}
+
+export interface Note {
+  id: string;
+  content: string;
+  createdAt: number;
+}
+
+export interface TaskBreakdown {
+  subtasks: string[];
+  reasoning: string;
+}
+
+export interface RankingAudit {
+  summary: string;
+  suggestions: { taskId: string; improvement: string }[];
 }

@@ -1,5 +1,8 @@
 
 {
-  "name": "RankFlow - Gestor de Tarefas e Hábitos",
-  "description": "Um gestor de tarefas sofisticado com ranking manual e uma nova seção de hábitos recorrentes para produtividade constante."
+  "name": "RankFlow",
+  "description": "A productivity dashboard that leverages Gemini AI to rank and prioritize your daily habits and tasks for maximum flow and efficiency.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
 }
