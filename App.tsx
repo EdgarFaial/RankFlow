@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   Plus, LayoutDashboard, ListOrdered, Sparkles, BrainCircuit, 
@@ -7,12 +8,12 @@ import {
   AlertCircle, TrendingUp, Award
 } from 'lucide-react';
 import { Task, TaskStatus, RankingCriterion, AppView, Habit, HabitFrequency } from './types';
-import { ThemeMode, ThemeName, THEME_MAP, ThemeColors } from './themes/theme';
+import { ThemeMode, ThemeName, THEME_MAP, ThemeColors } from './theme';
 import { RANKING_CONFIGS } from './constants';
-import TaskCard from './components/TaskCard';
-import HabitCard from './components/HabitCard';
-import RankerHeader from './components/RankerHeader';
-import { getTaskBreakdown, getRankingAudit } from './services/geminiService';
+import TaskCard from './TaskCard';
+import HabitCard from './HabitCard';
+import RankerHeader from './RankerHeader';
+import { getTaskBreakdown, getRankingAudit } from './geminiService';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
 
 const App: React.FC = () => {
@@ -132,219 +133,325 @@ const App: React.FC = () => {
     const today = new Date().toISOString().split('T')[0];
     setHabits(prev => prev.map(h => {
       if (h.id === id) {
-        const isCompleted = h.completedDates.includes(today);
-        return {
-          ...h,
-          completedDates: isCompleted 
-            ? h.completedDates.filter(d => d !== today)
-            : [...h.completedDates, today]
-        };
+        const alreadyDone = h.completedDates.includes(today);
+        const newDates = alreadyDone 
+          ? h.completedDates.filter(d => d !== today)
+          : [...h.completedDates, today];
+        return { ...h, completedDates: newDates };
       }
       return h;
     }));
   };
 
-  const deleteHabit = (id: string) => {
-    setHabits(prev => prev.filter(h => h.id !== id));
-  };
+  const deleteTask = (id: string) => setTasks(prev => prev.filter(t => t.id !== id));
+  const deleteHabit = (id: string) => setHabits(prev => prev.filter(h => h.id !== id));
 
-  const handleAudit = async () => {
-    if (!isAiEnabled || tasks.length === 0) return;
-    setIsAIThinking(true);
-    const audit = await getRankingAudit(tasks);
-    setAiAudit(audit);
-    setIsAIThinking(false);
-  };
-
-  const moveTask = useCallback((taskId: string, direction: 'up' | 'down') => {
+  const updateRank = (taskId: string, criterion: RankingCriterion, newRank: number) => {
     setTasks(prev => {
-      const currentTasks = [...prev].sort((a, b) => a[activeCriterion] - b[activeCriterion]);
-      const index = currentTasks.findIndex(t => t.id === taskId);
-      if (index === -1) return prev;
-      const targetIndex = direction === 'up' ? index - 1 : index + 1;
-      if (targetIndex < 0 || targetIndex >= currentTasks.length) return prev;
-      const taskA = { ...currentTasks[index] };
-      const taskB = { ...currentTasks[targetIndex] };
-      const tempRank = taskA[activeCriterion];
-      taskA[activeCriterion] = taskB[activeCriterion];
-      taskB[activeCriterion] = tempRank;
-      return prev.map(t => t.id === taskA.id ? taskA : t.id === taskB.id ? taskB : t);
+      const updated = [...prev];
+      const target = updated.find(t => t.id === taskId);
+      if (!target) return prev;
+      const oldRank = target[criterion];
+      updated.forEach(t => {
+        if (t.id === taskId) {
+          t[criterion] = newRank;
+        } else if (oldRank < newRank) {
+          if (t[criterion] > oldRank && t[criterion] <= newRank) t[criterion]--;
+        } else {
+          if (t[criterion] >= newRank && t[criterion] < oldRank) t[criterion]++;
+        }
+      });
+      return updated;
     });
-  }, [activeCriterion]);
+  };
 
-  // Data Memos
+  const runAiAudit = async () => {
+    setIsAIThinking(true);
+    const result = await getRankingAudit(tasks, activeCriterion);
+    setIsAIThinking(false);
+    if (result) setAiAudit(result);
+  };
+
+  // Filter & Sort
   const sortedTasks = useMemo(() => [...tasks].sort((a, b) => a[activeCriterion] - b[activeCriterion]), [tasks, activeCriterion]);
-  const statsData = useMemo(() => RANKING_CONFIGS.map(c => ({
-    name: c.label === 'Priority' ? 'Prioridade' : c.label === 'Difficulty' ? 'Dificuldade' : 'Urgência',
-    avg: tasks.reduce((a, b) => a + (b[c.id] || 0), 0) / (tasks.length || 1)
-  })), [tasks]);
-  
-  const statusDist = useMemo(() => [
-    { name: 'A fazer', value: tasks.filter(t => t.status === 'todo').length, fill: '#6366f1' },
-    { name: 'Feito', value: tasks.filter(t => t.status === 'done').length, fill: '#10b981' }
+
+  const calendarRange = useMemo(() => {
+    const start = new Date(calendarDate.getFullYear(), calendarDate.getMonth(), 1);
+    const end = new Date(calendarDate.getFullYear(), calendarDate.getMonth() + 1, 0);
+    const days = [];
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      days.push(new Date(d));
+    }
+    return days;
+  }, [calendarDate]);
+
+  const statsData = useMemo(() => [
+    {name: 'Prioridade', avg: tasks.length ? tasks.reduce((acc, t) => acc + t.priorityRank, 0) / tasks.length : 0},
+    {name: 'Urgência', avg: tasks.length ? tasks.reduce((acc, t) => acc + t.urgencyRank, 0) / tasks.length : 0},
+    {name: 'Dificuldade', avg: tasks.length ? tasks.reduce((acc, t) => acc + t.difficultyRank, 0) / tasks.length : 0}
   ], [tasks]);
 
-  const navItems = [
-    { id: 'tasks', icon: ListOrdered, label: 'Tarefas' },
-    { id: 'habits', icon: Repeat, label: 'Hábitos' },
-    { id: 'calendar', icon: CalendarIcon, label: 'Calendário' },
-    { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-    { id: 'settings', icon: SettingsIcon, label: 'Ajustes' },
-  ];
+  const statusDist = useMemo(() => {
+    const todo = tasks.filter(t => t.status === TaskStatus.TODO).length;
+    const done = tasks.filter(t => t.status === TaskStatus.DONE).length;
+    const inProgress = tasks.filter(t => t.status === TaskStatus.IN_PROGRESS).length;
+    return [
+      {name: 'A fazer', value: todo, fill: '#6366f1'},
+      {name: 'Em andamento', value: inProgress, fill: '#f59e0b'},
+      {name: 'Concluído', value: done, fill: '#10b981'}
+    ];
+  }, [tasks]);
 
-  const themesList: {id: ThemeName, label: string, color: string}[] = [
-    { id: 'default', label: 'Padrão', color: 'bg-indigo-500' },
-    { id: 'cyberpunk', label: 'Neon', color: 'bg-fuchsia-500' },
-    { id: 'sololeveling', label: 'Monarch', color: 'bg-blue-600' },
-    { id: 'japanese', label: 'Zen', color: 'bg-red-700' },
-    ...(customTheme ? [{ id: 'custom' as ThemeName, label: 'Custom', color: 'bg-emerald-500' }] : [])
+  const themesList = [
+    { id: 'default' as ThemeName, label: 'Padrão', color: 'bg-indigo-500' },
+    { id: 'cyberpunk' as ThemeName, label: 'Cyberpunk', color: 'bg-gradient-to-br from-cyan-400 to-fuchsia-500' },
+    { id: 'sololeveling' as ThemeName, label: 'Solo Leveling', color: 'bg-gradient-to-br from-blue-500 to-indigo-600' },
+    { id: 'japanese' as ThemeName, label: 'Japonês', color: 'bg-gradient-to-br from-red-600 to-orange-500' }
   ];
 
   return (
-    <div className={`flex flex-col md:flex-row h-screen overflow-hidden ${theme.mainBg} transition-all duration-300 relative`}>
+    <div className={`min-h-screen ${theme.mainBg} flex transition-all duration-500 ${theme.bgImage ? 'relative' : ''}`}>
       {theme.bgImage && (
-        <div className="absolute inset-0 z-0 bg-cover bg-center pointer-events-none"
-          style={{ backgroundImage: `url(${theme.bgImage})`, opacity: theme.bgOpacity ?? 0.1 }} />
+        <div className="fixed inset-0 z-0 opacity-20" style={{backgroundImage: `url(${theme.bgImage})`, backgroundSize: 'cover', backgroundPosition: 'center'}} />
       )}
-
-      {/* Sidebar */}
-      <aside className={`hidden md:flex flex-col w-72 ${theme.sidebarBg} text-white p-8 shrink-0 shadow-2xl z-20`}>
-        <div className="flex items-center gap-3 mb-12">
-          <div className={`${theme.accent} p-2.5 rounded-2xl shadow-lg`}><Sparkles size={28} /></div>
-          <h1 className="text-2xl font-black tracking-tighter">RankFlow</h1>
+      
+      <aside className={`${theme.sidebarBg} w-80 p-10 flex flex-col gap-8 relative z-10 border-r ${theme.border} shadow-2xl`}>
+        <div className="flex items-center gap-4 mb-10">
+          <div className="w-16 h-16 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-[2rem] flex items-center justify-center shadow-2xl shadow-indigo-500/30">
+            <TrendingUp size={32} className="text-white" strokeWidth={3} />
+          </div>
+          <h1 className="text-4xl font-black bg-gradient-to-r from-indigo-400 to-purple-500 bg-clip-text text-transparent tracking-tighter">RankFlow</h1>
         </div>
-        <nav className="space-y-3 flex-1">
-          {navItems.map(item => (
-            <button key={item.id} onClick={() => { setView(item.id as AppView); setAiAudit(null); }}
-              className={`w-full flex items-center gap-4 px-5 py-4 rounded-2xl transition-all font-bold ${view === item.id ? theme.accent + ' shadow-lg text-white' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
-              <item.icon size={22} /> {item.label}
+
+        <nav className="flex flex-col gap-4">
+          {[
+            {id: 'tasks', icon: LayoutDashboard, label: 'Tarefas'},
+            {id: 'habits', icon: Repeat, label: 'Hábitos'},
+            {id: 'calendar', icon: CalendarIcon, label: 'Calendário'},
+            {id: 'analytics', icon: Award, label: 'Analíticas'},
+            {id: 'settings', icon: SettingsIcon, label: 'Configurações'}
+          ].map(item => (
+            <button key={item.id} onClick={() => setView(item.id as AppView)} 
+              className={`flex items-center gap-4 px-8 py-5 rounded-[2rem] text-lg font-black uppercase tracking-wider transition-all ${view === item.id ? 'bg-white/10 text-white shadow-inner' : 'text-white/40 hover:bg-white/5 hover:text-white/60'}`}>
+              <item.icon size={24} strokeWidth={2.5} />
+              <span>{item.label}</span>
             </button>
           ))}
         </nav>
-        
-        {isAiEnabled && view === 'tasks' && tasks.length > 0 && (
-          <button onClick={handleAudit} disabled={isAIThinking}
-            className="mb-6 w-full flex items-center justify-center gap-3 px-5 py-4 rounded-2xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/30 hover:bg-indigo-500/20 transition-all font-black uppercase text-xs tracking-widest disabled:opacity-50">
-            {isAIThinking ? <Loader2 size={18} className="animate-spin" /> : <BrainCircuit size={18} />} Audit IA
-          </button>
-        )}
 
-        <div className="pt-8 border-t border-white/10 opacity-40 text-[10px] text-center font-black uppercase tracking-[0.2em]">
-          PRODUTIVIDADE RADICAL
+        <div className="mt-auto p-8 bg-white/5 rounded-[2rem] backdrop-blur-sm border border-white/10">
+          <div className="flex items-center gap-3 mb-4">
+            <BrainCircuit size={24} className="text-indigo-400" />
+            <span className="text-sm font-black uppercase tracking-widest text-white/60">Assistente IA</span>
+          </div>
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input type="checkbox" checked={isAiEnabled} onChange={e => {
+              setIsAiEnabled(e.target.checked);
+              localStorage.setItem('rankflow_ai_enabled', String(e.target.checked));
+            }} className="w-6 h-6 accent-indigo-500" />
+            <span className="text-sm font-bold text-white">Habilitado</span>
+          </label>
         </div>
       </aside>
 
-      {/* Main Container */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden z-10 relative">
-        <header className={`${theme.headerBg} border-b ${theme.border} px-8 py-5 flex items-center justify-between z-10 backdrop-blur-md bg-opacity-80`}>
-          <h2 className={`text-xl font-black ${theme.textPrimary} tracking-tight`}>
-            {view === 'tasks' ? 'Organizar Tarefas' : view === 'habits' ? 'Meus Hábitos' : navItems.find(n => n.id === view)?.label}
-          </h2>
-          <div className="flex gap-3">
-            {view === 'tasks' && (
-              <button onClick={() => setIsModalOpen(true)} className={`flex items-center gap-2 ${theme.accent} text-white px-6 py-2.5 rounded-xl text-sm font-black shadow-lg hover:brightness-110 active:scale-95 transition-all`}>
-                <Plus size={20} /> NOVA TAREFA
-              </button>
-            )}
-            {view === 'habits' && (
-              <button onClick={() => setIsHabitModalOpen(true)} className={`flex items-center gap-2 ${theme.accent} text-white px-6 py-2.5 rounded-xl text-sm font-black shadow-lg hover:brightness-110 active:scale-95 transition-all`}>
-                <Plus size={20} /> NOVO HÁBITO
-              </button>
-            )}
-          </div>
-        </header>
-
-        {/* Audit Panel */}
-        {aiAudit && view === 'tasks' && (
-          <div className="mx-8 mt-6 p-6 rounded-3xl bg-indigo-600 text-white shadow-2xl animate-in slide-in-from-top-4 duration-500 relative overflow-hidden">
-             <div className="absolute top-0 right-0 p-4 opacity-10"><Sparkles size={120} /></div>
-             <button onClick={() => setAiAudit(null)} className="absolute top-4 right-4 hover:bg-white/20 p-1 rounded-full"><X size={20}/></button>
-             <div className="flex items-center gap-3 mb-4">
-                <BrainCircuit size={24} />
-                <h3 className="text-lg font-black uppercase tracking-wider">Sugestões da Inteligência Artificial</h3>
-             </div>
-             <p className="text-indigo-100 mb-6 font-medium leading-relaxed">{aiAudit.summary}</p>
-             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {aiAudit.suggestions.map((s, i) => (
-                  <div key={i} className="bg-white/10 backdrop-blur-sm p-4 rounded-2xl border border-white/20 flex gap-3 items-start">
-                    <TrendingUp size={18} className="shrink-0 mt-1" />
-                    <span className="text-sm font-bold">{s.improvement}</span>
-                  </div>
-                ))}
-             </div>
-          </div>
-        )}
-
-        {/* Mobile Nav */}
-        <div className={`md:hidden flex ${theme.headerBg} border-b ${theme.border} p-2`}>
-          {navItems.map(item => (
-            <button key={item.id} onClick={() => setView(item.id as AppView)}
-              className={`flex-1 flex flex-col items-center justify-center py-2 rounded-xl ${view === item.id ? theme.accent + ' text-white' : 'text-slate-500'}`}>
-              <item.icon size={20} />
-              <span className="text-[9px] font-black uppercase mt-1">{item.label}</span>
-            </button>
-          ))}
-        </div>
-
-        {/* View Content */}
-        <div className="flex-1 overflow-y-auto p-6 md:p-10 space-y-10">
+      <main className="flex-1 relative z-10 overflow-auto">
+        <div className="max-w-7xl mx-auto p-12">
           {view === 'tasks' && (
-            <div className="max-w-5xl mx-auto space-y-8">
-              <div className="flex flex-wrap gap-4 justify-center md:justify-start">
-                {RANKING_CONFIGS.map(config => (
-                  <RankerHeader key={config.id} config={config} isActive={activeCriterion === config.id} onClick={() => setActiveCriterion(config.id)} />
-                ))}
+            <div className="space-y-12">
+              <div className="flex items-end justify-between">
+                <div>
+                  <h2 className={`text-6xl font-black ${theme.textPrimary} tracking-tighter mb-3`}>Suas Tarefas</h2>
+                  <p className={`text-lg ${theme.textSecondary} font-medium`}>Organize, priorize e conquiste seus objetivos</p>
+                </div>
+                <button onClick={() => setIsModalOpen(true)} 
+                  className={`${theme.accent} text-white px-10 py-6 rounded-[2rem] flex items-center gap-4 font-black uppercase text-sm tracking-[0.2em] shadow-2xl hover:scale-105 active:scale-95 transition-all`}>
+                  <Plus size={24} strokeWidth={3} />
+                  Nova Tarefa
+                </button>
               </div>
-              <div className="grid grid-cols-1 gap-5">
-                {sortedTasks.length === 0 ? (
-                  <div className={`flex flex-col items-center justify-center py-32 text-slate-400 border-4 border-dashed ${theme.border} rounded-[3rem]`}>
-                    <ListOrdered size={64} strokeWidth={1} className="mb-6 opacity-20" />
-                    <p className="text-xl font-bold italic">Sua lista está vazia. Comece a criar!</p>
+
+              <RankerHeader 
+                criterion={activeCriterion} 
+                onCriterionChange={setActiveCriterion}
+                onAiAudit={runAiAudit}
+                isAiThinking={isAIThinking}
+                theme={theme}
+              />
+
+              {aiAudit && (
+                <div className={`${theme.cardBg} border ${theme.border} rounded-[3rem] p-10 shadow-2xl animate-in fade-in duration-500`}>
+                  <div className="flex items-start justify-between mb-8">
+                    <div className="flex items-center gap-4">
+                      <div className="w-14 h-14 bg-gradient-to-br from-purple-500 to-pink-500 rounded-[1.5rem] flex items-center justify-center shadow-xl">
+                        <Sparkles size={28} className="text-white" />
+                      </div>
+                      <div>
+                        <h3 className={`text-2xl font-black ${theme.textPrimary} tracking-tight`}>Auditoria da IA</h3>
+                        <p className={`text-sm ${theme.textSecondary} font-medium`}>Insights sobre sua organização</p>
+                      </div>
+                    </div>
+                    <button onClick={() => setAiAudit(null)} className="hover:rotate-90 transition-transform">
+                      <X size={24} className={theme.textSecondary} />
+                    </button>
                   </div>
-                ) : (
-                  sortedTasks.map((task, idx) => (
-                    <TaskCard key={task.id} task={task} criterion={activeCriterion} onMove={moveTask} onDelete={(id) => setTasks(prev => prev.filter(t => t.id !== id))} onToggleStatus={toggleStatus} isFirst={idx === 0} isLast={idx === sortedTasks.length - 1} />
-                  ))
+                  <p className={`${theme.textPrimary} text-lg leading-relaxed font-medium mb-6`}>{aiAudit.summary}</p>
+                  {aiAudit.suggestions.length > 0 && (
+                    <div className="space-y-4">
+                      <h4 className={`text-sm font-black uppercase tracking-widest ${theme.textSecondary}`}>Sugestões</h4>
+                      {aiAudit.suggestions.map((sug, idx) => (
+                        <div key={idx} className="flex gap-4 p-6 bg-indigo-500/5 rounded-2xl border border-indigo-500/10">
+                          <AlertCircle size={20} className="text-indigo-500 flex-shrink-0 mt-1" />
+                          <p className={`${theme.textPrimary} font-medium`}>{sug.improvement}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="grid gap-6">
+                {sortedTasks.map(task => (
+                  <TaskCard 
+                    key={task.id}
+                    task={task}
+                    activeCriterion={activeCriterion}
+                    onToggleStatus={toggleStatus}
+                    onDelete={deleteTask}
+                    onRankChange={updateRank}
+                    theme={theme}
+                  />
+                ))}
+                {tasks.length === 0 && (
+                  <div className={`${theme.cardBg} border ${theme.border} rounded-[3rem] p-20 text-center shadow-xl`}>
+                    <div className="w-24 h-24 bg-indigo-100 dark:bg-indigo-900/20 rounded-full flex items-center justify-center mx-auto mb-6">
+                      <ListOrdered size={48} className="text-indigo-500" />
+                    </div>
+                    <h3 className={`text-2xl font-black ${theme.textPrimary} mb-3`}>Nenhuma tarefa ainda</h3>
+                    <p className={`${theme.textSecondary} font-medium`}>Clique em "Nova Tarefa" para começar sua jornada produtiva</p>
+                  </div>
                 )}
               </div>
             </div>
           )}
 
           {view === 'habits' && (
-            <div className="max-w-4xl mx-auto space-y-6">
-              <div className="grid grid-cols-1 gap-5">
-                {habits.length === 0 ? (
-                  <div className={`flex flex-col items-center justify-center py-32 text-slate-400 border-4 border-dashed ${theme.border} rounded-[3rem]`}>
-                    <Award size={64} strokeWidth={1} className="mb-6 opacity-20" />
-                    <p className="text-xl font-bold italic">Nenhum hábito rastreado. Mude sua rotina!</p>
+            <div className="space-y-12">
+              <div className="flex items-end justify-between">
+                <div>
+                  <h2 className={`text-6xl font-black ${theme.textPrimary} tracking-tighter mb-3`}>Hábitos</h2>
+                  <p className={`text-lg ${theme.textSecondary} font-medium`}>Construa rotinas poderosas, um dia de cada vez</p>
+                </div>
+                <button onClick={() => setIsHabitModalOpen(true)} 
+                  className={`bg-emerald-500 text-white px-10 py-6 rounded-[2rem] flex items-center gap-4 font-black uppercase text-sm tracking-[0.2em] shadow-2xl hover:scale-105 active:scale-95 transition-all`}>
+                  <Plus size={24} strokeWidth={3} />
+                  Novo Hábito
+                </button>
+              </div>
+
+              <div className="grid gap-6">
+                {habits.map(habit => (
+                  <HabitCard 
+                    key={habit.id}
+                    habit={habit}
+                    onToggle={toggleHabit}
+                    onDelete={deleteHabit}
+                    theme={theme}
+                  />
+                ))}
+                {habits.length === 0 && (
+                  <div className={`${theme.cardBg} border ${theme.border} rounded-[3rem] p-20 text-center shadow-xl`}>
+                    <div className="w-24 h-24 bg-emerald-100 dark:bg-emerald-900/20 rounded-full flex items-center justify-center mx-auto mb-6">
+                      <Repeat size={48} className="text-emerald-500" />
+                    </div>
+                    <h3 className={`text-2xl font-black ${theme.textPrimary} mb-3`}>Nenhum hábito criado</h3>
+                    <p className={`${theme.textSecondary} font-medium`}>Comece a construir hábitos que transformam sua vida</p>
                   </div>
-                ) : (
-                  habits.map(habit => <HabitCard key={habit.id} habit={habit} theme={theme} onToggle={toggleHabit} onDelete={deleteHabit} />)
                 )}
               </div>
             </div>
           )}
 
-          {view === 'dashboard' && (
-            <div className="max-w-6xl mx-auto space-y-10">
-               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                  {[
-                    { label: 'Tarefas Ativas', val: tasks.filter(t => t.status !== 'done').length, color: 'text-indigo-500', icon: ListOrdered },
-                    { label: 'Hábitos Ativos', val: habits.length, color: 'text-emerald-500', icon: Repeat },
-                    { label: 'Consistência', val: habits.length > 0 ? `${Math.round((habits.reduce((a, b) => a + b.completedDates.length, 0) / (habits.length * 30)) * 100)}%` : '0%', color: 'text-amber-500', icon: TrendingUp },
-                    { label: 'Finalizadas', val: tasks.filter(t => t.status === 'done').length, color: 'text-rose-500', icon: CheckCircle }
-                  ].map((stat, i) => (
-                    <div key={i} className={`${theme.cardBg} p-8 rounded-[2.5rem] border ${theme.border} shadow-xl backdrop-blur-md group hover:scale-105 transition-transform`}>
-                       <div className="flex justify-between items-start mb-4">
-                         <div className={`p-3 rounded-2xl bg-slate-100 dark:bg-white/5 ${stat.color}`}><stat.icon size={24}/></div>
-                       </div>
-                       <p className={`text-4xl font-black ${theme.textPrimary}`}>{stat.val}</p>
-                       <p className={`text-xs font-black uppercase tracking-widest ${theme.textSecondary} mt-2`}>{stat.label}</p>
+          {view === 'calendar' && (
+            <div className="space-y-12">
+              <div>
+                <h2 className={`text-6xl font-black ${theme.textPrimary} tracking-tighter mb-3`}>Calendário</h2>
+                <p className={`text-lg ${theme.textSecondary} font-medium`}>Visualize suas tarefas e hábitos no tempo</p>
+              </div>
+
+              <div className={`${theme.cardBg} border ${theme.border} rounded-[3rem] p-10 shadow-2xl`}>
+                <div className="flex items-center justify-between mb-10">
+                  <button onClick={() => setCalendarDate(new Date(calendarDate.getFullYear(), calendarDate.getMonth() - 1))} 
+                    className={`p-4 rounded-2xl ${theme.textSecondary} hover:bg-black/5 dark:hover:bg-white/5 transition-all`}>
+                    <ChevronLeft size={24} />
+                  </button>
+                  <h3 className={`text-3xl font-black ${theme.textPrimary} tracking-tight`}>
+                    {calendarDate.toLocaleDateString('pt-BR', {month: 'long', year: 'numeric'})}
+                  </h3>
+                  <button onClick={() => setCalendarDate(new Date(calendarDate.getFullYear(), calendarDate.getMonth() + 1))} 
+                    className={`p-4 rounded-2xl ${theme.textSecondary} hover:bg-black/5 dark:hover:bg-white/5 transition-all`}>
+                    <ChevronRight size={24} />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-7 gap-4">
+                  {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map(day => (
+                    <div key={day} className={`text-center text-xs font-black uppercase tracking-widest ${theme.textSecondary} pb-4`}>
+                      {day}
                     </div>
                   ))}
+                  {calendarRange.map((day, i) => {
+                    const dateStr = day.toISOString().split('T')[0];
+                    const dayTasks = tasks.filter(t => t.dueDate === dateStr);
+                    const dayHabits = habits.filter(h => h.completedDates.includes(dateStr));
+                    return (
+                      <div key={i} className={`aspect-square p-4 rounded-2xl border ${theme.border} ${theme.cardBg} hover:shadow-lg transition-all cursor-pointer`}>
+                        <div className={`text-sm font-bold ${theme.textPrimary} mb-2`}>{day.getDate()}</div>
+                        <div className="space-y-1">
+                          {dayTasks.length > 0 && <div className="w-2 h-2 bg-indigo-500 rounded-full" />}
+                          {dayHabits.length > 0 && <div className="w-2 h-2 bg-emerald-500 rounded-full" />}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {view === 'analytics' && (
+            <div className="space-y-12">
+               <div>
+                <h2 className={`text-6xl font-black ${theme.textPrimary} tracking-tighter mb-3`}>Analíticas</h2>
+                <p className={`text-lg ${theme.textSecondary} font-medium`}>Métricas e insights sobre sua produtividade</p>
                </div>
-               
-               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+
+               <div className="grid grid-cols-3 gap-8">
+                  <div className={`${theme.cardBg} p-10 rounded-[3rem] border ${theme.border} shadow-xl`}>
+                     <div className="flex items-center justify-between mb-4">
+                       <span className={`text-sm font-black uppercase tracking-widest ${theme.textSecondary}`}>Total de Tarefas</span>
+                       <LayoutDashboard size={24} className="text-indigo-500" />
+                     </div>
+                     <p className={`text-5xl font-black ${theme.textPrimary}`}>{tasks.length}</p>
+                  </div>
+                  <div className={`${theme.cardBg} p-10 rounded-[3rem] border ${theme.border} shadow-xl`}>
+                     <div className="flex items-center justify-between mb-4">
+                       <span className={`text-sm font-black uppercase tracking-widest ${theme.textSecondary}`}>Concluídas</span>
+                       <CheckCircle size={24} className="text-emerald-500" />
+                     </div>
+                     <p className={`text-5xl font-black ${theme.textPrimary}`}>{tasks.filter(t => t.status === TaskStatus.DONE).length}</p>
+                  </div>
+                  <div className={`${theme.cardBg} p-10 rounded-[3rem] border ${theme.border} shadow-xl`}>
+                     <div className="flex items-center justify-between mb-4">
+                       <span className={`text-sm font-black uppercase tracking-widest ${theme.textSecondary}`}>Taxa de Conclusão</span>
+                       <Award size={24} className="text-amber-500" />
+                     </div>
+                     <p className={`text-5xl font-black ${theme.textPrimary}`}>
+                       {tasks.length > 0 ? Math.round((tasks.filter(t => t.status === TaskStatus.DONE).length / tasks.length) * 100) : 0}%
+                     </p>
+                  </div>
+               </div>
+
+               <div className="grid grid-cols-2 gap-8">
                   <div className={`${theme.cardBg} p-10 rounded-[3rem] border ${theme.border} h-[400px] shadow-xl`}>
                     <h3 className={`text-lg font-black uppercase tracking-widest ${theme.textPrimary} mb-8`}>Distribuição de Tarefas</h3>
                     <ResponsiveContainer width="100%" height="100%">
@@ -411,7 +518,6 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      {/* Modal de Nova Tarefa */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-xl bg-black/40">
           <div className={`relative ${theme.cardBg} w-full max-w-xl rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in duration-300`}>
@@ -439,7 +545,6 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* Modal de Novo Hábito */}
       {isHabitModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-xl bg-black/40">
            <div className={`relative ${theme.cardBg} w-full max-w-xl rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in duration-300`}>
