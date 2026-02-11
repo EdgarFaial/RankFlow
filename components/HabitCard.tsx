@@ -1,11 +1,12 @@
+
 import React from 'react';
+import { Flame, Trash2, CheckCircle2, Circle } from 'lucide-react';
 import { Habit } from '../types';
-import { CheckCircle2, Circle, Flame, Trash2, CalendarDays } from 'lucide-react';
-import { ThemeColors } from '../themes/theme';
+import { ThemeConfig } from '../themes/theme';
 
 interface HabitCardProps {
   habit: Habit;
-  theme: ThemeColors;
+  theme: ThemeConfig;
   onToggle: (id: string) => void;
   onDelete: (id: string) => void;
 }
@@ -13,78 +14,40 @@ interface HabitCardProps {
 const HabitCard: React.FC<HabitCardProps> = ({ habit, theme, onToggle, onDelete }) => {
   const today = new Date().toISOString().split('T')[0];
   const isCompletedToday = habit.completedDates.includes(today);
-
-  const calculateStreak = () => {
-    if (habit.completedDates.length === 0) return 0;
-    
-    const sortedDates = [...new Set(habit.completedDates)].sort().reverse();
-    let streak = 0;
-    let checkDate = new Date();
-    checkDate.setHours(0, 0, 0, 0);
-
-    // If not completed today, start checking from yesterday
-    if (!isCompletedToday) {
-      checkDate.setDate(checkDate.getDate() - 1);
-    }
-
-    for (const dateStr of sortedDates) {
-      const d = new Date(dateStr + 'T00:00:00');
-      const diffDays = Math.floor((checkDate.getTime() - d.getTime()) / (1000 * 3600 * 24));
-      
-      if (diffDays === 0) {
-        streak++;
-        checkDate.setDate(checkDate.getDate() - 1);
-      } else if (diffDays > 0) {
-        break;
-      }
-    }
-    return streak;
-  };
-
-  const streak = calculateStreak();
-  const freqLabels: Record<string, string> = {
-    daily: 'Diário',
-    weekly: 'Semanal',
-    weekdays: 'Dias úteis',
-    weekend: 'Fim de semana'
-  };
+  const streak = habit.completedDates.length;
 
   return (
-    <div className={`${theme.cardBg} border ${theme.border} rounded-3xl p-5 flex items-center justify-between group transition-all hover:shadow-xl hover:-translate-y-1 backdrop-blur-md bg-opacity-80`}>
+    <div className={`${theme.cardBg} border ${theme.border} p-6 rounded-[2.5rem] shadow-xl flex items-center justify-between group transition-all hover:scale-[1.01]`}>
       <div className="flex items-center gap-5">
         <button 
           onClick={() => onToggle(habit.id)}
-          className={`transition-all duration-300 transform active:scale-75 ${isCompletedToday ? 'text-emerald-500 scale-110' : theme.textSecondary + ' hover:text-indigo-500'}`}
+          className={`shrink-0 transition-all transform active:scale-90 ${isCompletedToday ? 'text-emerald-500' : 'text-slate-300 dark:text-slate-700 hover:text-emerald-400'}`}
         >
-          {isCompletedToday ? <CheckCircle2 size={32} /> : <Circle size={32} strokeWidth={1.5} />}
+          {isCompletedToday ? <CheckCircle2 size={32} /> : <Circle size={32} />}
         </button>
+        
         <div>
-          <h4 className={`text-lg font-black ${theme.textPrimary} ${isCompletedToday ? 'opacity-40 line-through' : ''} transition-all`}>
+          <h3 className={`text-xl font-black tracking-tight ${theme.textPrimary} ${isCompletedToday ? 'opacity-60' : ''}`}>
             {habit.title}
-          </h4>
-          <div className="flex items-center gap-4 mt-1.5">
-            <span className={`text-[9px] uppercase font-black px-2.5 py-1 rounded-lg ${theme.accent} text-white shadow-sm`}>
-              {freqLabels[habit.frequency] || habit.frequency}
+          </h3>
+          <div className="flex items-center gap-3 mt-1">
+            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+              {habit.frequency}
             </span>
-            {streak > 0 && (
-              <div className="flex items-center gap-1.5 text-orange-500 font-black text-sm animate-pulse">
-                <Flame size={14} fill="currentColor" />
-                <span>{streak} {streak === 1 ? 'dia' : 'dias'}</span>
-              </div>
-            )}
+            <div className="flex items-center gap-1 text-orange-500">
+              <Flame size={12} fill="currentColor" />
+              <span className="text-[10px] font-black uppercase tracking-widest">{streak} dias</span>
+            </div>
           </div>
         </div>
       </div>
-      
+
       <div className="flex items-center gap-2">
-        <div className={`p-2 rounded-xl bg-slate-100 dark:bg-white/5 ${theme.textSecondary} opacity-0 group-hover:opacity-100 transition-opacity`}>
-          <CalendarDays size={16} />
-        </div>
         <button 
           onClick={() => onDelete(habit.id)}
-          className="p-2.5 text-rose-500 hover:bg-rose-500 hover:text-white rounded-2xl transition-all duration-300"
+          className="p-3 text-rose-500 opacity-0 group-hover:opacity-100 hover:bg-rose-500/10 rounded-2xl transition-all"
         >
-          <Trash2 size={20} />
+          <Trash2 size={18} />
         </button>
       </div>
     </div>

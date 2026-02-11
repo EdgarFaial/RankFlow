@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { RankingCriterion } from '../types';
 
@@ -8,23 +9,16 @@ interface RankerHeaderProps {
 }
 
 const RankerHeader: React.FC<RankerHeaderProps> = ({ config, isActive, onClick }) => {
-  const labelMap: Record<string, string> = {
-    'Priority': 'Prioridade',
-    'Difficulty': 'Dificuldade',
-    'Urgency': 'Urgência'
-  };
-
   return (
     <button
       onClick={onClick}
-      className={`px-5 py-2.5 rounded-2xl font-bold text-xs uppercase tracking-wider transition-all duration-300 flex items-center gap-2 border-2 ${
-        isActive 
-          ? `${config.color} text-white border-transparent shadow-lg scale-105` 
-          : 'bg-white/50 dark:bg-slate-900/50 text-slate-500 dark:text-slate-400 hover:border-indigo-400 border-slate-200 dark:border-slate-800 backdrop-blur-sm'
-      }`}
+      className={`px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest transition-all border-2 
+        ${isActive 
+          ? `${config.color} border-transparent text-white shadow-lg scale-105` 
+          : 'border-slate-200 dark:border-slate-800 text-slate-400 hover:border-indigo-500/30'
+        }`}
     >
-      <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-white' : config.color}`} />
-      {labelMap[config.label] || config.label}
+      {config.label === 'priorityRank' ? 'Prioridade' : config.label === 'difficultyRank' ? 'Dificuldade' : 'Urgência'}
     </button>
   );
 };

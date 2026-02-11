@@ -14,8 +14,22 @@ import HabitCard from './components/HabitCard';
 import RankerHeader from './components/RankerHeader';
 import { getTaskBreakdown, getRankingAudit } from './services/geminiService';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
+import { useMongoDB } from './hooks/useMongoDB';
 
 const App: React.FC = () => {
+  const {
+    isLoading: isMongoLoading,
+    error: mongoError,
+    isInitialized,
+    loadTasks,
+    saveTasks,
+    loadHabits,
+    saveHabits,
+    loadNotes,
+    saveNotes,
+    saveSettings
+  } = useMongoDB();
+
   // --- Core State ---
   const [tasks, setTasks] = useState<Task[]>([]);
   const [habits, setHabits] = useState<Habit[]>([]);
@@ -43,6 +57,7 @@ const App: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isHabitModalOpen, setIsHabitModalOpen] = useState(false);
   const [isNoteInputVisible, setIsNoteInputVisible] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   
   // Forms
   const [newTitle, setNewTitle] = useState('');
@@ -57,38 +72,83 @@ const App: React.FC = () => {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Theme Memo
-  const theme = useMemo(() => {
-    const base = THEME_MAP[themeName as keyof typeof THEME_MAP]?.[themeMode] || THEME_MAP.default[themeMode];
-    return { ...base, bgImage: overrideBgUrl || base.bgImage };
-  }, [themeName, themeMode, overrideBgUrl]);
-
-  // Storage Effects
+  // --- Carregar dados iniciais do MongoDB ---
   useEffect(() => {
-    const savedTasks = localStorage.getItem('rankflow_tasks');
-    if (savedTasks) try { setTasks(JSON.parse(savedTasks)); } catch (e) { console.error(e); }
-    const savedHabits = localStorage.getItem('rankflow_habits');
-    if (savedHabits) try { setHabits(JSON.parse(savedHabits)); } catch (e) { console.error(e); }
-    const savedNotes = localStorage.getItem('rankflow_notes');
-    if (savedNotes) try { setNotes(JSON.parse(savedNotes)); } catch (e) { console.error(e); }
-  }, []);
+    const initializeData = async () => {
+      setIsLoading(true);
+      try {
+        const [loadedTasks, loadedHabits, loadedNotes] = await Promise.all([
+          loadTasks(),
+          loadHabits(),
+          loadNotes()
+        ]);
 
-  useEffect(() => { localStorage.setItem('rankflow_tasks', JSON.stringify(tasks)); }, [tasks]);
-  useEffect(() => { localStorage.setItem('rankflow_habits', JSON.stringify(habits)); }, [habits]);
-  useEffect(() => { localStorage.setItem('rankflow_notes', JSON.stringify(notes)); }, [notes]);
+        setTasks(loadedTasks);
+        setHabits(loadedHabits);
+        setNotes(loadedNotes);
+      } catch (error) {
+        console.error('Erro ao carregar dados:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    if (!isMongoLoading) {
+      initializeData();
+    }
+  }, [isMongoLoading, loadTasks, loadHabits, loadNotes]);
+
+  // --- Salvar dados no MongoDB quando mudarem ---
   useEffect(() => {
+    if (!isLoading && !isMongoLoading) {
+      saveTasks(tasks);
+    }
+  }, [tasks, saveTasks, isLoading, isMongoLoading]);
+
+  useEffect(() => {
+    if (!isLoading && !isMongoLoading) {
+      saveHabits(habits);
+    }
+  }, [habits, saveHabits, isLoading, isMongoLoading]);
+
+  useEffect(() => {
+    if (!isLoading && !isMongoLoading) {
+      saveNotes(notes);
+    }
+  }, [notes, saveNotes, isLoading, isMongoLoading]);
+
+  // --- Salvar configurações ---
+  useEffect(() => {
+    const settings = {
+      mode: themeMode,
+      theme_name: themeName,
+      bg_override: overrideBgUrl,
+      notifications: notificationsEnabled,
+      ai_enabled: isAiEnabled,
+      gcal_connected: isGCalConnected
+    };
+    
+    saveSettings(settings);
+    
+    // Também manter no localStorage para fallback e persistência entre sessões
     localStorage.setItem('rankflow_mode', themeMode);
     localStorage.setItem('rankflow_theme_name', themeName);
     localStorage.setItem('rankflow_bg_override', overrideBgUrl);
     localStorage.setItem('rankflow_notifications', notificationsEnabled.toString());
     localStorage.setItem('rankflow_ai_enabled', isAiEnabled.toString());
     localStorage.setItem('rankflow_gcal_connected', isGCalConnected.toString());
+    
     document.documentElement.classList.toggle('dark', themeMode === 'dark');
-  }, [themeMode, themeName, overrideBgUrl, notificationsEnabled, isAiEnabled, isGCalConnected]);
+  }, [themeMode, themeName, overrideBgUrl, notificationsEnabled, isAiEnabled, isGCalConnected, saveSettings]);
 
-  // Google Calendar Integration (Mock Implementation for Frontend-only Environment)
+  // Theme Memo
+  const theme = useMemo(() => {
+    const base = THEME_MAP[themeName as keyof typeof THEME_MAP]?.[themeMode] || THEME_MAP.default[themeMode];
+    return { ...base, bgImage: overrideBgUrl || base.bgImage };
+  }, [themeName, themeMode, overrideBgUrl]);
+
+  // Google Calendar Integration
   const connectGCal = () => {
-    // In a real production app, this would trigger OAuth2 flow
     setIsSyncing(true);
     setTimeout(() => {
       setIsGCalConnected(true);
@@ -100,7 +160,6 @@ const App: React.FC = () => {
   const syncToGCal = () => {
     if (!isGCalConnected) return;
     setIsSyncing(true);
-    // Simulate syncing tasks with due dates to GCal
     const syncCount = tasks.filter(t => t.dueDate && t.status === TaskStatus.TODO).length;
     setTimeout(() => {
       setIsSyncing(false);
@@ -280,7 +339,6 @@ const App: React.FC = () => {
   const transformNoteToTask = (note: Note) => {
     setNewTitle(note.content);
     setIsModalOpen(true);
-    // Note is not deleted automatically, user might want to keep it
   };
 
   const transformNoteToHabit = (note: Note) => {
@@ -343,8 +401,30 @@ const App: React.FC = () => {
     { id: 'japanese', label: 'Zen', color: 'bg-stone-500' }
   ];
 
+  // Loading screen
+  if (isLoading || isMongoLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-slate-900 text-white">
+        <div className="text-center">
+          <Loader2 size={48} className="animate-spin mx-auto mb-4 text-indigo-500" />
+          <h1 className="text-2xl font-black tracking-tighter mb-2">RankFlow</h1>
+          <p className="text-slate-400">Conectando ao MongoDB...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Error banner if MongoDB fails
+  const showMongoErrorBanner = mongoError && !isMongoLoading;
+
   return (
     <div className={`flex flex-col md:flex-row h-screen overflow-hidden ${theme.mainBg} transition-all duration-300 relative`}>
+      {showMongoErrorBanner && (
+        <div className="absolute top-0 left-0 right-0 z-50 bg-amber-600 text-white p-2 text-center text-sm font-bold">
+          ⚠️ {mongoError} Os dados estão sendo salvos localmente por enquanto.
+        </div>
+      )}
+
       {theme.bgImage && (
         <div className="absolute inset-0 z-0 bg-cover bg-center pointer-events-none"
           style={{ backgroundImage: `url(${theme.bgImage})`, opacity: theme.bgOpacity ?? 0.1 }} />
@@ -377,6 +457,7 @@ const App: React.FC = () => {
         </div>
       </aside>
 
+      {/* Rest of the component remains exactly the same from here... */}
       {/* Main Container */}
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden z-10 relative">
         <header className={`${theme.headerBg} border-b ${theme.border} px-8 py-5 flex items-center justify-between z-10 backdrop-blur-md bg-opacity-80`}>
@@ -707,7 +788,7 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      {/* Modals */}
+      {/* Modals (exactly the same as before) */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-xl bg-black/40">
           <div className={`relative ${theme.cardBg} w-full max-w-xl rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in duration-300`}>

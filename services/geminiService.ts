@@ -1,64 +1,43 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { Task, TaskBreakdown, RankingAudit } from "../types";
 
-export const getTaskBreakdown = async (title: string, description: string): Promise<TaskBreakdown | null> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
-  
-  const prompt = `Break down the following task into clear actionable subtasks and provide reasoning for the approach. 
-  Task: ${title}
-  Context: ${description}
-  Return a structured JSON with 'subtasks' (array of strings) and 'reasoning' (string).`;
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
 
+export const getTaskBreakdown = async (title: string, description: string): Promise<TaskBreakdown | null> => {
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: prompt,
+      contents: `Analise a seguinte tarefa e crie um detalhamento estratégico. 
+      Tarefa: ${title}
+      Descrição original: ${description}
+      Retorne um JSON com subtasks (passos acionáveis) e reasoning (por que essa ordem).`,
       config: {
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            subtasks: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-              description: "Actionable steps."
-            },
-            reasoning: {
-              type: Type.STRING,
-              description: "Strategic reason for this breakdown."
-            }
+            subtasks: { type: Type.ARRAY, items: { type: Type.STRING } },
+            reasoning: { type: Type.STRING }
           },
           required: ["subtasks", "reasoning"]
         }
       }
     });
-
-    return JSON.parse(response.text || "null") as TaskBreakdown;
-  } catch (error) {
-    console.error("Gemini breakdown error:", error);
+    return JSON.parse(response.text);
+  } catch (e) {
+    console.error("AI Error:", e);
     return null;
   }
 };
 
-export const getRankingAudit = async (tasks: Task[]): Promise<RankingAudit> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
-  
-  const taskList = tasks
-    .filter(t => t.status !== 'done')
-    .map(t => `- [ID:${t.id}] ${t.title} (P:${t.priorityRank}, D:${t.difficultyRank}, U:${t.urgencyRank})`)
-    .join('\n');
-
-  const prompt = `Act as a high-performance productivity coach. Audit this task list and provide a summary of the user's workload state and specific suggestions for improving focus or flow based on their priority (P), difficulty (D), and urgency (U) rankings.
-  
-  Tasks:
-  ${taskList}
-  
-  Return a JSON with 'summary' (string) and 'suggestions' (array of {taskId, improvement}).`;
-
+export const getRankingAudit = async (tasks: Task[]): Promise<RankingAudit | null> => {
   try {
+    const taskList = tasks.map(t => ({ title: t.title, priority: t.priorityRank, urgency: t.urgencyRank }));
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: prompt,
+      contents: `Você é um coach de produtividade. Analise esta lista de tarefas: ${JSON.stringify(taskList)}. 
+      Forneça um resumo estratégico e 3 sugestões de melhoria de foco.`,
       config: {
         responseMimeType: "application/json",
         responseSchema: {
@@ -73,7 +52,7 @@ export const getRankingAudit = async (tasks: Task[]): Promise<RankingAudit> => {
                   taskId: { type: Type.STRING },
                   improvement: { type: Type.STRING }
                 },
-                required: ["taskId", "improvement"]
+                required: ["improvement"]
               }
             }
           },
@@ -81,21 +60,9 @@ export const getRankingAudit = async (tasks: Task[]): Promise<RankingAudit> => {
         }
       }
     });
-
-    return JSON.parse(response.text || "{}") as RankingAudit;
-  } catch (error) {
-    console.error("Gemini audit error:", error);
-    return { 
-      summary: "Não foi possível realizar a auditoria de IA no momento. Concentre-se em sua tarefa de maior prioridade.", 
-      suggestions: [] 
-    };
+    return JSON.parse(response.text);
+  } catch (e) {
+    console.error("AI Audit Error:", e);
+    return null;
   }
-};
-
-export const rankTasksWithAI = async (tasks: Task[]): Promise<any> => {
-    // Placeholder as requested previously but with valid structure if needed later
-    return { 
-      rankedTaskIds: tasks.map(t => t.id), 
-      reasoning: "Ordenação manual preferencial." 
-    };
 };

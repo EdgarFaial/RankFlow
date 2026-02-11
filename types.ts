@@ -1,3 +1,4 @@
+
 export enum TaskStatus {
   TODO = 'todo',
   DONE = 'done'
@@ -19,8 +20,8 @@ export interface Task {
   status: TaskStatus;
   createdAt: number;
   dueDate?: string;
-  lastNotified?: number; // Timestamp of last notification
-  googleEventId?: string; // ID of the synced Google Calendar event
+  lastNotified?: number;
+  googleEventId?: string;
 }
 
 export interface Habit {
