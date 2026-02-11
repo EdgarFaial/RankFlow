@@ -19,3 +19,4 @@ View your app in AI Studio: https://ai.studio/apps/temp/2
 3. Run the app:
    `npm run dev`
 https://cdn.wallpapersafari.com/36/10/Llamxq.png
+.
