@@ -1,4 +1,4 @@
-
+/*
 import { GoogleGenAI, Type } from "@google/genai";
 
 // Always use named parameter for apiKey and use process.env.API_KEY directly.
