@@ -2,20 +2,7 @@
 import clientPromise from '../mongodb.js';
 
 export default async function handler(req, res) {
-  // Configuração ampla de CORS para evitar bloqueios durante debug
-  const allowedOrigins = [
-    'https://rank-flow-eta.vercel.app', 
-    'http://localhost:3000', 
-    'http://localhost:5173'
-  ];
-  const origin = req.headers.origin;
-
-  if (allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  } else {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-  }
-  
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
@@ -23,7 +10,6 @@ export default async function handler(req, res) {
 
   try {
     const client = await clientPromise;
-    // Tenta conectar ao DB rankflow (ou o definido na string de conexão)
     const db = client.db('rankflow');
     const collection = db.collection('tasks');
 
@@ -31,10 +17,7 @@ export default async function handler(req, res) {
       const documents = await collection.find({}).toArray();
       const mapped = documents.map(doc => {
         const { _id, ...rest } = doc;
-        return {
-          ...rest,
-          id: rest.id || _id.toString()
-        };
+        return { ...rest, id: rest.id || _id.toString() };
       });
       return res.status(200).json({ documents: mapped });
     }
@@ -51,15 +34,13 @@ export default async function handler(req, res) {
       }
       return res.status(200).json({ success: true });
     }
-
-    return res.status(405).json({ message: 'Method not allowed' });
   } catch (error) {
-    console.error('CRITICAL_SERVER_ERROR:', error);
+    console.error('TASK_API_ERROR:', error);
     return res.status(500).json({ 
-      error: 'Erro de Conexão com Banco de Dados', 
+      error: 'SERVER_ERROR', 
       message: error.message,
-      code: error.code || 'UNKNOWN',
-      instruction: 'Se o erro persistir, verifique se o IP 0.0.0.0/0 está liberado no Atlas Network Access.'
+      code: error.code || 'N/A',
+      detail: 'Isso geralmente significa erro de senha na MONGODB_URI ou IP não liberado no Atlas (0.0.0.0/0).'
     });
   }
 }

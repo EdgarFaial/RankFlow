@@ -10,6 +10,14 @@ export type AppView = 'tasks' | 'habits' | 'notes' | 'calendar' | 'dashboard' | 
 
 export type HabitFrequency = 'daily' | 'weekly' | 'weekdays' | 'weekend';
 
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  avatar?: string;
+  isGuest?: boolean;
+}
+
 export interface Task {
   id: string;
   title: string;
@@ -36,14 +44,4 @@ export interface Note {
   id: string;
   content: string;
   createdAt: number;
-}
-
-export interface TaskBreakdown {
-  subtasks: string[];
-  reasoning: string;
-}
-
-export interface RankingAudit {
-  summary: string;
-  suggestions: { taskId: string; improvement: string }[];
 }
