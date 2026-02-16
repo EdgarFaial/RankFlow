@@ -1,17 +1,27 @@
 
 import { MongoClient } from 'mongodb';
 
-const uri = process.env.MONGODB_URI;
+let uri = process.env.MONGODB_URI;
 
 if (!uri) {
-  throw new Error('Erro: MONGODB_URI não definida no ambiente.');
+  throw new Error('Erro: MONGODB_URI não definida no ambiente da Vercel.');
 }
 
-// Configurações recomendadas para evitar erros de conexão em serverless
+/**
+ * Lógica de auto-correção:
+ * Remove os caracteres < e > que costumam vir no exemplo do MongoDB Atlas 
+ * e que os usuários as vezes esquecem de remover.
+ */
+if (uri.includes('<') || uri.includes('>')) {
+  console.warn('RankFlow: Detectados caracteres < ou > na MONGODB_URI. Tentando limpar...');
+  uri = uri.replace(/</g, '').replace(/>/g, '');
+}
+
 const options = {
-  maxPoolSize: 10,
-  serverSelectionTimeoutMS: 5000,
+  maxPoolSize: 1, // Mantém baixo para evitar estourar limites em serverless
+  serverSelectionTimeoutMS: 10000,
   socketTimeoutMS: 45000,
+  connectTimeoutMS: 10000,
 };
 
 let client;
@@ -20,18 +30,12 @@ let clientPromise;
 if (process.env.NODE_ENV === 'development') {
   if (!global._mongoClientPromise) {
     client = new MongoClient(uri, options);
-    global._mongoClientPromise = client.connect().catch(err => {
-      console.error('Falha na conexão de desenvolvimento:', err);
-      throw err;
-    });
+    global._mongoClientPromise = client.connect();
   }
   clientPromise = global._mongoClientPromise;
 } else {
   client = new MongoClient(uri, options);
-  clientPromise = client.connect().catch(err => {
-    console.error('Falha na conexão de produção:', err);
-    throw err;
-  });
+  clientPromise = client.connect();
 }
 
 export default clientPromise;
