@@ -18,10 +18,10 @@ import { useMongoDB } from './hooks/useMongoDB';
 import { authService } from './services/authService';
 
 const themesList: { id: ThemeName; label: string; color: string }[] = [
-  { id: 'default', label: 'Padrão', color: 'bg-indigo-500' },
-  { id: 'cyberpunk', label: 'Cyberpunk', color: 'bg-fuchsia-500' },
-  { id: 'sololeveling', label: 'Solo Leveling', color: 'bg-blue-600' },
-  { id: 'japanese', label: 'Zen Japanese', color: 'bg-[#d64933]' },
+  { id: 'default', label: 'Essencial', color: 'bg-indigo-500' },
+  { id: 'neon', label: 'Neon', color: 'bg-fuchsia-500' },
+  { id: 'ascending', label: 'Ascending', color: 'bg-blue-600' },
+  { id: 'zen', label: 'Zen', color: 'bg-[#d64933]' },
 ];
 
 const App: React.FC = () => {
@@ -55,8 +55,12 @@ const App: React.FC = () => {
   const [view, setView] = useState<AppView>('tasks');
   const [showOfflineNotice, setShowOfflineNotice] = useState(true);
   
-  // Tema
-  const [themeMode, setThemeMode] = useState<ThemeMode>(() => (localStorage.getItem('rankflow_mode') as ThemeMode) || 'light');
+  // Tema - Inicia com o padrão do dispositivo se não houver preferência salva
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
+    const saved = localStorage.getItem('rankflow_mode');
+    if (saved) return saved as ThemeMode;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  });
   const [themeName, setThemeName] = useState<ThemeName>(() => (localStorage.getItem('rankflow_theme_name') as ThemeName) || 'default');
   const [overrideBgUrl, setOverrideBgUrl] = useState(() => localStorage.getItem('rankflow_bg_override') || '');
   
@@ -442,23 +446,14 @@ const App: React.FC = () => {
           ))}
         </nav>
 
-        {user ? (
-          <div className="mt-auto pt-6 border-t border-white/10 flex items-center gap-3 mb-4">
-             <img src={user.avatar} className="w-10 h-10 rounded-xl border-2 border-white/20" />
-             <div className="flex-1 overflow-hidden">
-               <p className="text-xs font-black truncate">{user.name}</p>
-               <p className="text-[10px] opacity-50 truncate">{user.email}</p>
-             </div>
-          </div>
-        ) : (
-          <div className="mt-auto pt-6 border-t border-white/10 flex items-center gap-3 mb-4 opacity-50">
-             <div className="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center"><UserIcon size={20} /></div>
-             <div className="flex-1 overflow-hidden">
-               <p className="text-xs font-black truncate">Convidado</p>
-               <p className="text-[10px] truncate">Dados Locais</p>
-             </div>
-          </div>
-        )}
+        <div className="mt-auto pt-6 border-t border-white/10 mb-4 px-2">
+           <div className="flex items-center gap-3 text-slate-400 px-3 py-2">
+             <UserIcon size={20} />
+             <p className="text-sm font-bold truncate">
+               {user ? user.name : 'Convidado'}
+             </p>
+           </div>
+        </div>
       </aside>
 
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden z-10 relative">

@@ -1,6 +1,6 @@
 
 export type ThemeMode = 'light' | 'dark';
-export type ThemeName = 'default' | 'cyberpunk' | 'sololeveling' | 'japanese';
+export type ThemeName = 'default' | 'neon' | 'ascending' | 'zen';
 
 export interface ThemeConfig {
   mainBg: string;
@@ -41,7 +41,7 @@ export const THEME_MAP: Record<ThemeName, Record<ThemeMode, ThemeConfig>> = {
       border: 'border-slate-800'
     }
   },
-  cyberpunk: {
+  neon: {
     light: {
       mainBg: 'bg-fuchsia-50',
       sidebarBg: 'bg-slate-950',
@@ -66,7 +66,7 @@ export const THEME_MAP: Record<ThemeName, Record<ThemeMode, ThemeConfig>> = {
       bgOpacity: 0.15
     }
   },
-  sololeveling: {
+  ascending: {
     light: {
       mainBg: 'bg-blue-50',
       sidebarBg: 'bg-blue-950',
@@ -90,7 +90,7 @@ export const THEME_MAP: Record<ThemeName, Record<ThemeMode, ThemeConfig>> = {
       border: 'border-blue-500/20'
     }
   },
-  japanese: {
+  zen: {
     light: {
       mainBg: 'bg-[#f4f1ea]',
       sidebarBg: 'bg-[#3c3c3c]',
