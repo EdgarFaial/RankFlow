@@ -18,7 +18,7 @@ const RankerHeader: React.FC<RankerHeaderProps> = ({ config, isActive, onClick }
           : 'border-slate-200 dark:border-slate-800 text-slate-400 hover:border-indigo-500/30'
         }`}
     >
-      {config.label === 'priorityRank' ? 'Prioridade' : config.label === 'difficultyRank' ? 'Dificuldade' : 'Urgência'}
+      {config.id === 'priorityRank' ? 'Prioridade' : config.id === 'difficultyRank' ? 'Esforço' : 'Urgência'}
     </button>
   );
 };

@@ -5,7 +5,7 @@ import {
   X, Loader2, Calendar as CalendarIcon, 
   Settings as SettingsIcon, Moon, Sun, Repeat,
   TrendingUp, Award, CheckCircle, Download, Upload, Bell, BellOff, Copy, Check,
-  StickyNote, ArrowRightLeft, Trash2, Calendar, LogIn, LogOut, User as UserIcon, Mail, Shield
+  StickyNote, ArrowRightLeft, Trash2, Calendar, LogIn, LogOut, User as UserIcon, Mail, Shield, CloudOff
 } from 'lucide-react';
 import { Task, TaskStatus, RankingCriterion, AppView, Habit, HabitFrequency, Note, User } from './types';
 import { ThemeMode, ThemeName, THEME_MAP } from './themes/theme';
@@ -30,13 +30,14 @@ const App: React.FC = () => {
     const saved = localStorage.getItem('rankflow_user');
     return saved ? JSON.parse(saved) : null;
   });
+  const [isGuest, setIsGuest] = useState(() => localStorage.getItem('rankflow_is_guest') === 'true');
   const [authLoading, setAuthLoading] = useState(false);
   const [loginEmail, setLoginEmail] = useState('');
   const [loginName, setLoginName] = useState('');
 
   const {
     isLoading: isMongoLoading,
-    isInitialized,
+    isInitialized: isCloudActive,
     loadTasks,
     saveTasks,
     loadHabits,
@@ -52,6 +53,7 @@ const App: React.FC = () => {
   const [notes, setNotes] = useState<Note[]>([]);
   const [activeCriterion, setActiveCriterion] = useState<RankingCriterion>('priorityRank');
   const [view, setView] = useState<AppView>('tasks');
+  const [showOfflineNotice, setShowOfflineNotice] = useState(true);
   
   // Tema
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => (localStorage.getItem('rankflow_mode') as ThemeMode) || 'light');
@@ -66,7 +68,7 @@ const App: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isHabitModalOpen, setIsHabitModalOpen] = useState(false);
   const [isNoteInputVisible, setIsNoteInputVisible] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLocalDataLoading, setIsLocalDataLoading] = useState(true);
   
   const [newTitle, setNewTitle] = useState('');
   const [newDesc, setNewDesc] = useState('');
@@ -84,7 +86,9 @@ const App: React.FC = () => {
     try {
       const loggedUser = await authService.login(loginEmail, loginName);
       setUser(loggedUser);
+      setIsGuest(false);
       localStorage.setItem('rankflow_user', JSON.stringify(loggedUser));
+      localStorage.removeItem('rankflow_is_guest');
     } catch (err) {
       alert('Erro ao entrar. Tente novamente.');
     } finally {
@@ -92,58 +96,69 @@ const App: React.FC = () => {
     }
   };
 
+  const handleGuestMode = () => {
+    setIsGuest(true);
+    setUser(null);
+    localStorage.setItem('rankflow_is_guest', 'true');
+    localStorage.removeItem('rankflow_user');
+  };
+
   const handleLogout = () => {
     setUser(null);
+    setIsGuest(false);
     localStorage.removeItem('rankflow_user');
-    // Limpa estados locais ao deslogar
+    localStorage.removeItem('rankflow_is_guest');
     setTasks([]);
     setHabits([]);
     setNotes([]);
     setView('tasks');
   };
 
+  // Inicialização de dados (Nuvem ou Local)
   useEffect(() => {
     const initializeData = async () => {
-      if (!user) return;
-      setIsLoading(true);
+      if (!user && !isGuest) return;
+      
+      setIsLocalDataLoading(true);
       try {
         const [loadedTasks, loadedHabits, loadedNotes] = await Promise.all([
           loadTasks(),
           loadHabits(),
           loadNotes()
         ]);
-        setTasks(loadedTasks);
-        setHabits(loadedHabits);
-        setNotes(loadedNotes);
+        setTasks(loadedTasks || []);
+        setHabits(loadedHabits || []);
+        setNotes(loadedNotes || []);
       } catch (error) {
         console.error('Erro ao carregar dados:', error);
       } finally {
-        setIsLoading(false);
+        setIsLocalDataLoading(false);
       }
     };
 
-    if (!isMongoLoading && user) {
+    if (!isMongoLoading && (user || isGuest)) {
       initializeData();
     }
-  }, [isMongoLoading, loadTasks, loadHabits, loadNotes, user]);
+  }, [isMongoLoading, loadTasks, loadHabits, loadNotes, user, isGuest]);
 
+  // Sincronização automática
   useEffect(() => {
-    if (!isLoading && !isMongoLoading && user) {
+    if (!isLocalDataLoading && !isMongoLoading && (user || isGuest)) {
       saveTasks(tasks);
     }
-  }, [tasks, saveTasks, isLoading, isMongoLoading, user]);
+  }, [tasks, saveTasks, isLocalDataLoading, isMongoLoading, user, isGuest]);
 
   useEffect(() => {
-    if (!isLoading && !isMongoLoading && user) {
+    if (!isLocalDataLoading && !isMongoLoading && (user || isGuest)) {
       saveHabits(habits);
     }
-  }, [habits, saveHabits, isLoading, isMongoLoading, user]);
+  }, [habits, saveHabits, isLocalDataLoading, isMongoLoading, user, isGuest]);
 
   useEffect(() => {
-    if (!isLoading && !isMongoLoading && user) {
+    if (!isLocalDataLoading && !isMongoLoading && (user || isGuest)) {
       saveNotes(notes);
     }
-  }, [notes, saveNotes, isLoading, isMongoLoading, user]);
+  }, [notes, saveNotes, isLocalDataLoading, isMongoLoading, user, isGuest]);
 
   useEffect(() => {
     const settings = {
@@ -167,14 +182,35 @@ const App: React.FC = () => {
     return { ...base, bgImage: overrideBgUrl || base.bgImage };
   }, [themeName, themeMode, overrideBgUrl]);
 
-  const sortedTasks = useMemo(() => 
-    [...tasks].sort((a, b) => a[activeCriterion] - b[activeCriterion]), 
-    [tasks, activeCriterion]
-  );
+  const sortedTasks = useMemo(() => {
+    const result = [...tasks];
+    
+    // Lógica especial para Urgência: Prazos mais próximos no topo
+    if (activeCriterion === 'urgencyRank') {
+      return result.sort((a, b) => {
+        const hasDateA = !!a.dueDate;
+        const hasDateB = !!b.dueDate;
+
+        if (hasDateA && !hasDateB) return -1;
+        if (!hasDateA && hasDateB) return 1;
+
+        if (hasDateA && hasDateB) {
+          const timeA = new Date(a.dueDate!).getTime();
+          const timeB = new Date(b.dueDate!).getTime();
+          if (timeA !== timeB) return timeA - timeB;
+        }
+
+        return a.urgencyRank - b.urgencyRank;
+      });
+    }
+
+    // Ordenação padrão para os outros critérios
+    return result.sort((a, b) => a[activeCriterion] - b[activeCriterion]);
+  }, [tasks, activeCriterion]);
   
   const statsData = useMemo(() => 
     RANKING_CONFIGS.map(c => ({
-      name: c.label === 'Priority' ? 'Prioridade' : c.label === 'Difficulty' ? 'Dificuldade' : 'Urgência',
+      name: c.label === 'priorityRank' ? 'Prioridade' : c.label === 'difficultyRank' ? 'Esforço' : 'Urgência',
       avg: tasks.length === 0 ? 0 : tasks.reduce((a, b) => a + (b[c.id] || 0), 0) / tasks.length
     })), 
     [tasks]
@@ -284,8 +320,8 @@ const App: React.FC = () => {
     });
   }, [activeCriterion]);
 
-  // Pantalha de Login
-  if (!user) {
+  // Tela de Login / Modo Guest
+  if (!user && !isGuest) {
     return (
       <div className={`flex items-center justify-center h-screen ${theme.mainBg} overflow-hidden transition-all duration-300 relative`}>
         {theme.bgImage && (
@@ -342,16 +378,26 @@ const App: React.FC = () => {
             </button>
           </form>
 
-          <p className="text-center mt-8 text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-relaxed">
-            Seus dados são salvos na nuvem e vinculados <br/> exclusivamente ao seu e-mail.
-          </p>
+          <div className="my-6 flex items-center gap-4">
+            <div className={`flex-1 h-[1px] ${theme.border} opacity-20`} />
+            <span className={`text-[10px] font-black uppercase tracking-widest ${theme.textSecondary}`}>ou</span>
+            <div className={`flex-1 h-[1px] ${theme.border} opacity-20`} />
+          </div>
+
+          <button 
+            onClick={handleGuestMode}
+            className={`w-full py-4 border-2 border-dashed ${theme.border} ${theme.textSecondary} font-black text-xs uppercase tracking-[0.2em] rounded-2xl hover:bg-slate-100 dark:hover:bg-white/5 transition-all flex items-center justify-center gap-3`}
+          >
+            <Shield size={16} />
+            Permanecer Desconectado
+          </button>
         </div>
       </div>
     );
   }
 
-  // Renderização principal do Dashboard
-  if (isLoading || isMongoLoading) {
+  // Splash screen apenas se estiver tentando carregar dados da nuvem
+  if (user && isMongoLoading) {
     return (
       <div className="flex items-center justify-center h-screen bg-slate-900 text-white">
         <div className="text-center">
@@ -396,27 +442,47 @@ const App: React.FC = () => {
           ))}
         </nav>
 
-        <div className="mt-auto pt-6 border-t border-white/10 flex items-center gap-3 mb-4">
-           <img src={user.avatar} className="w-10 h-10 rounded-xl border-2 border-white/20" />
-           <div className="flex-1 overflow-hidden">
-             <p className="text-xs font-black truncate">{user.name}</p>
-             <p className="text-[10px] opacity-50 truncate">{user.email}</p>
-           </div>
-        </div>
-
-        <div className="pt-4 opacity-40 text-[10px] text-center font-black uppercase tracking-[0.2em]">
-          FLOW RADICAL
-        </div>
+        {user ? (
+          <div className="mt-auto pt-6 border-t border-white/10 flex items-center gap-3 mb-4">
+             <img src={user.avatar} className="w-10 h-10 rounded-xl border-2 border-white/20" />
+             <div className="flex-1 overflow-hidden">
+               <p className="text-xs font-black truncate">{user.name}</p>
+               <p className="text-[10px] opacity-50 truncate">{user.email}</p>
+             </div>
+          </div>
+        ) : (
+          <div className="mt-auto pt-6 border-t border-white/10 flex items-center gap-3 mb-4 opacity-50">
+             <div className="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center"><UserIcon size={20} /></div>
+             <div className="flex-1 overflow-hidden">
+               <p className="text-xs font-black truncate">Convidado</p>
+               <p className="text-[10px] truncate">Dados Locais</p>
+             </div>
+          </div>
+        )}
       </aside>
 
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden z-10 relative">
         <header className={`${theme.headerBg} border-b ${theme.border} px-8 py-5 flex items-center justify-between z-10 backdrop-blur-md bg-opacity-80`}>
-          <h2 className={`text-xl font-black ${theme.textPrimary} tracking-tight`}>
-            {view === 'tasks' ? 'Otimizar Tarefas' : 
-             view === 'habits' ? 'Hábitos' : 
-             view === 'notes' ? 'Notas Rápidas' : 
-             navItems.find(n => n.id === view)?.label}
-          </h2>
+          <div className="flex items-center gap-4">
+            <h2 className={`text-xl font-black ${theme.textPrimary} tracking-tight`}>
+              {view === 'tasks' ? 'Otimizar Tarefas' : 
+               view === 'habits' ? 'Hábitos' : 
+               view === 'notes' ? 'Notas Rápidas' : 
+               navItems.find(n => n.id === view)?.label}
+            </h2>
+            {(!isCloudActive && showOfflineNotice) && (
+              <div className="flex items-center gap-2 px-3 py-1 bg-amber-500/10 text-amber-500 rounded-full border border-amber-500/20" title="Modo Offline - Salvando apenas localmente">
+                <CloudOff size={14} />
+                <span className="text-[10px] font-black uppercase tracking-widest">Offline</span>
+                <button 
+                  onClick={() => setShowOfflineNotice(false)}
+                  className="ml-1 p-0.5 hover:bg-amber-500/20 rounded-full transition-colors"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            )}
+          </div>
           
           <div className="flex gap-3">
             {view === 'tasks' && (
@@ -538,31 +604,6 @@ const App: React.FC = () => {
                   </div>
                 ))}
               </div>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 pb-10">
-                <div className={`${theme.cardBg} p-10 rounded-[3rem] border ${theme.border} h-[400px] shadow-xl`}>
-                  <h3 className={`text-lg font-black uppercase tracking-widest ${theme.textPrimary} mb-8`}>Status</h3>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={statusDist} innerRadius={80} outerRadius={120} paddingAngle={10} dataKey="value">
-                        {statusDist.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.fill} />)}
-                      </Pie>
-                      <Tooltip />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className={`${theme.cardBg} p-10 rounded-[3rem] border ${theme.border} h-[400px] shadow-xl`}>
-                  <h3 className={`text-lg font-black uppercase tracking-widest ${theme.textPrimary} mb-8`}>Rankings</h3>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={statsData}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.1} />
-                      <XAxis dataKey="name" fontSize={10} fontWeight="bold" />
-                      <YAxis fontSize={10} />
-                      <Tooltip />
-                      <Bar dataKey="avg" fill="#6366f1" radius={[10, 10, 0, 0]} barSize={40} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
             </div>
           )}
 
@@ -597,11 +638,11 @@ const App: React.FC = () => {
               <div className={`${theme.cardBg} border ${theme.border} rounded-[3rem] overflow-hidden shadow-2xl backdrop-blur-md`}>
                 <div className={`p-8 border-b ${theme.border} flex items-center justify-between`}>
                   <div>
-                    <h3 className={`text-xl font-black ${theme.textPrimary} tracking-tighter`}>Cloud & Backup</h3>
-                    <p className={`text-xs ${theme.textSecondary} font-medium`}>Gestão de dados e sessão.</p>
+                    <h3 className={`text-xl font-black ${theme.textPrimary} tracking-tighter`}>Gestão de Dados</h3>
+                    <p className={`text-xs ${theme.textSecondary} font-medium`}>Controle seus backups e sessão.</p>
                   </div>
-                  <div className={`p-3 rounded-2xl bg-indigo-100 text-indigo-600`}>
-                    <Shield size={20} />
+                  <div className={`p-3 rounded-2xl ${isCloudActive ? 'bg-indigo-100 text-indigo-600' : 'bg-amber-100 text-amber-600'}`}>
+                    {isCloudActive ? <Shield size={20} /> : <CloudOff size={20} />}
                   </div>
                 </div>
                 <div className="p-8 space-y-4">

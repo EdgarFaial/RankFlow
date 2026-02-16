@@ -1,6 +1,7 @@
 
 import React from 'react';
-import { ChevronUp, ChevronDown, Trash2, CheckCircle, Circle, Clock, AlertTriangle } from 'lucide-react';
+/* Added Calendar to imports to fix the compilation error */
+import { ChevronUp, ChevronDown, Trash2, CheckCircle, Circle, Clock, AlertTriangle, Zap, Calendar } from 'lucide-react';
 import { Task, TaskStatus, RankingCriterion } from '../types';
 
 interface TaskCardProps {
@@ -18,7 +19,7 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, criterion, onMove, onDelete, 
   
   const getRankLabel = () => {
     if (criterion === 'priorityRank') return { label: 'Prioridade', icon: AlertTriangle, color: 'text-rose-500' };
-    if (criterion === 'difficultyRank') return { label: 'Esforço', icon: Clock, color: 'text-amber-500' };
+    if (criterion === 'difficultyRank') return { label: 'Esforço', icon: Zap, color: 'text-amber-500' };
     return { label: 'Urgência', icon: Clock, color: 'text-indigo-500' };
   };
 
@@ -36,11 +37,11 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, criterion, onMove, onDelete, 
         </h3>
         <div className="flex items-center gap-4">
           <span className={`text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 ${info.color}`}>
-             <info.icon size={12} /> {info.label} #{task[criterion]}
+             <info.icon size={12} /> {info.label} {criterion === 'urgencyRank' && task.dueDate ? '' : `#${task[criterion]}`}
           </span>
           {task.dueDate && (
             <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1.5">
-              <Clock size={12} /> {new Date(task.dueDate).toLocaleDateString('pt-BR')}
+              <Calendar size={12} /> {new Date(task.dueDate).toLocaleDateString('pt-BR')}
             </span>
           )}
         </div>
