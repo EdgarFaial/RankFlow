@@ -1,10 +1,13 @@
+
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { 
   Plus, LayoutDashboard, ListOrdered, Sparkles, BrainCircuit, 
   X, Loader2, Calendar as CalendarIcon, 
   Settings as SettingsIcon, Moon, Sun, Repeat,
   TrendingUp, Award, CheckCircle, Download, Upload, Bell, BellOff, Copy, Check,
-  StickyNote, ArrowRightLeft, Trash2, Calendar, LogIn, LogOut, User as UserIcon, Mail, Shield, CloudOff
+  StickyNote, ArrowRightLeft, Trash2, Calendar, LogIn, LogOut, User as UserIcon, Mail, Shield, CloudOff, Info,
+  // Added AlertTriangle to fix the reference error on line 419
+  AlertTriangle
 } from 'lucide-react';
 import { Task, TaskStatus, RankingCriterion, AppView, Habit, HabitFrequency, Note, User } from './types';
 import { ThemeMode, ThemeName, THEME_MAP } from './themes/theme';
@@ -13,9 +16,15 @@ import TaskCard from './components/TaskCard';
 import HabitCard from './components/HabitCard';
 import RankerHeader from './components/RankerHeader';
 import AdBanner from './components/AdBanner';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
 import { useMongoDB } from './hooks/useMongoDB';
 import { authService } from './services/authService';
+
+interface Toast {
+  id: string;
+  title: string;
+  message: string;
+  type: 'info' | 'success' | 'warning';
+}
 
 const themesList: { id: ThemeName; label: string; color: string }[] = [
   { id: 'default', label: 'Essencial', color: 'bg-indigo-500' },
@@ -55,7 +64,16 @@ const App: React.FC = () => {
   const [view, setView] = useState<AppView>('tasks');
   const [showOfflineNotice, setShowOfflineNotice] = useState(true);
   
-  // Tema - Inicia com o padrão do dispositivo se não houver preferência salva
+  // Drag and Drop State
+  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
+  
+  // Notifications & Toasts State
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>(
+    typeof Notification !== 'undefined' ? Notification.permission : 'default'
+  );
+
+  // Tema
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     const saved = localStorage.getItem('rankflow_mode');
     if (saved) return saved as ThemeMode;
@@ -82,7 +100,14 @@ const App: React.FC = () => {
   const [newNoteContent, setNewNoteContent] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Handlers de Autenticação
+  const addToast = (title: string, message: string, type: Toast['type'] = 'info') => {
+    const id = Math.random().toString(36).substr(2, 9);
+    setToasts(prev => [...prev, { id, title, message, type }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 5000);
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!loginEmail || !loginName) return;
@@ -93,8 +118,9 @@ const App: React.FC = () => {
       setIsGuest(false);
       localStorage.setItem('rankflow_user', JSON.stringify(loggedUser));
       localStorage.removeItem('rankflow_is_guest');
+      addToast("Sucesso", "Bem-vindo ao RankFlow!", "success");
     } catch (err) {
-      alert('Erro ao entrar. Tente novamente.');
+      addToast("Erro", "Falha ao autenticar. Verifique seus dados.", "warning");
     } finally {
       setAuthLoading(false);
     }
@@ -105,6 +131,7 @@ const App: React.FC = () => {
     setUser(null);
     localStorage.setItem('rankflow_is_guest', 'true');
     localStorage.removeItem('rankflow_user');
+    addToast("Modo Convidado", "Dados salvos apenas neste navegador.", "info");
   };
 
   const handleLogout = () => {
@@ -116,13 +143,13 @@ const App: React.FC = () => {
     setHabits([]);
     setNotes([]);
     setView('tasks');
+    addToast("Até logo", "Sua sessão foi encerrada.", "info");
   };
 
-  // Inicialização de dados (Nuvem ou Local)
+  // Inicialização de dados
   useEffect(() => {
     const initializeData = async () => {
       if (!user && !isGuest) return;
-      
       setIsLocalDataLoading(true);
       try {
         const [loadedTasks, loadedHabits, loadedNotes] = await Promise.all([
@@ -139,7 +166,6 @@ const App: React.FC = () => {
         setIsLocalDataLoading(false);
       }
     };
-
     if (!isMongoLoading && (user || isGuest)) {
       initializeData();
     }
@@ -181,6 +207,46 @@ const App: React.FC = () => {
     document.documentElement.classList.toggle('dark', themeMode === 'dark');
   }, [themeMode, themeName, overrideBgUrl, notificationsEnabled, isGCalConnected, saveSettings]);
 
+  // Monitor de Notificações
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = new Date();
+      const todayStr = now.toISOString().split('T')[0];
+      
+      tasks.forEach(task => {
+        if (task.status === TaskStatus.TODO && task.dueDate === todayStr && !task.lastNotified) {
+          // Toast elegante (App Ativo)
+          addToast("Lembrete", `A tarefa "${task.title}" vence hoje!`, "warning");
+          
+          // Push Nativo (Segundo Plano)
+          if (notificationPermission === 'granted' && notificationsEnabled) {
+            new Notification("RankFlow: Prazo Hoje", {
+              body: task.title,
+              icon: "/favicon.ico"
+            });
+          }
+          
+          setTasks(prev => prev.map(t => t.id === task.id ? { ...t, lastNotified: Date.now() } : t));
+        }
+      });
+    }, 60000);
+
+    return () => clearInterval(interval);
+  }, [tasks, notificationPermission, notificationsEnabled]);
+
+  const requestNotificationPermission = async () => {
+    if (typeof Notification === 'undefined') return;
+    const permission = await Notification.requestPermission();
+    setNotificationPermission(permission);
+    if (permission === 'granted') {
+      setNotificationsEnabled(true);
+      addToast("Notificações Ativas", "Você receberá alertas de prazos.", "success");
+      new Notification("RankFlow", { body: "Notificações do sistema ativadas com sucesso." });
+    } else {
+      addToast("Permissão Negada", "Não poderemos alertar você via navegador.", "warning");
+    }
+  };
+
   const theme = useMemo(() => {
     const base = THEME_MAP[themeName as keyof typeof THEME_MAP]?.[themeMode] || THEME_MAP.default[themeMode];
     return { ...base, bgImage: overrideBgUrl || base.bgImage };
@@ -188,42 +254,53 @@ const App: React.FC = () => {
 
   const sortedTasks = useMemo(() => {
     const result = [...tasks];
-    
-    // Lógica especial para Urgência: Prazos mais próximos no topo
     if (activeCriterion === 'urgencyRank') {
       return result.sort((a, b) => {
         const hasDateA = !!a.dueDate;
         const hasDateB = !!b.dueDate;
-
         if (hasDateA && !hasDateB) return -1;
         if (!hasDateA && hasDateB) return 1;
-
         if (hasDateA && hasDateB) {
           const timeA = new Date(a.dueDate!).getTime();
           const timeB = new Date(b.dueDate!).getTime();
           if (timeA !== timeB) return timeA - timeB;
         }
-
         return a.urgencyRank - b.urgencyRank;
       });
     }
-
-    // Ordenação padrão para os outros critérios
     return result.sort((a, b) => a[activeCriterion] - b[activeCriterion]);
   }, [tasks, activeCriterion]);
-  
-  const statsData = useMemo(() => 
-    RANKING_CONFIGS.map(c => ({
-      name: c.label === 'priorityRank' ? 'Prioridade' : c.label === 'difficultyRank' ? 'Esforço' : 'Urgência',
-      avg: tasks.length === 0 ? 0 : tasks.reduce((a, b) => a + (b[c.id] || 0), 0) / tasks.length
-    })), 
-    [tasks]
-  );
-  
-  const statusDist = useMemo(() => [
-    { name: 'A Fazer', value: tasks.filter(t => t.status === TaskStatus.TODO).length, fill: '#6366f1' },
-    { name: 'Concluído', value: tasks.filter(t => t.status === TaskStatus.DONE).length, fill: '#10b981' }
-  ], [tasks]);
+
+  // Drag and Drop Logic
+  const handleTaskDragStart = (id: string) => setDraggedTaskId(id);
+
+  const handleTaskDrop = (targetId: string) => {
+    if (!draggedTaskId || draggedTaskId === targetId) {
+      setDraggedTaskId(null);
+      return;
+    }
+
+    setTasks(prev => {
+      const currentList = [...prev].sort((a, b) => a[activeCriterion] - b[activeCriterion]);
+      const draggedIdx = currentList.findIndex(t => t.id === draggedTaskId);
+      const targetIdx = currentList.findIndex(t => t.id === targetId);
+      
+      if (draggedIdx === -1 || targetIdx === -1) return prev;
+
+      const [removed] = currentList.splice(draggedIdx, 1);
+      currentList.splice(targetIdx, 0, removed);
+
+      return prev.map(task => {
+        const newIndexInSorted = currentList.findIndex(t => t.id === task.id);
+        if (newIndexInSorted !== -1) {
+          return { ...task, [activeCriterion]: newIndexInSorted + 1 };
+        }
+        return task;
+      });
+    });
+    setDraggedTaskId(null);
+    addToast("Organizado", "Ranking atualizado com sucesso.", "success");
+  };
 
   const exportData = () => {
     const data = { tasks, habits, notes, themeName, themeMode, overrideBgUrl };
@@ -234,6 +311,7 @@ const App: React.FC = () => {
     a.download = `rankflow_backup.json`;
     a.click();
     URL.revokeObjectURL(url);
+    addToast("Backup Pronto", "Seus dados foram exportados.", "success");
   };
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -246,9 +324,9 @@ const App: React.FC = () => {
         if (data.tasks) setTasks(data.tasks);
         if (data.habits) setHabits(data.habits);
         if (data.notes) setNotes(data.notes);
-        alert("Backup restaurado!");
+        addToast("Sucesso", "Importação concluída.", "success");
       } catch (err) {
-        alert("Erro na importação.");
+        addToast("Erro", "Arquivo de backup inválido.", "warning");
       }
     };
     reader.readAsText(file);
@@ -273,6 +351,7 @@ const App: React.FC = () => {
     setNewDesc('');
     setNewDueDate('');
     setIsModalOpen(false);
+    addToast("Tarefa Criada", "A nova missão está no seu ranking.", "success");
   }, [newTitle, newDesc, newDueDate, tasks.length]);
 
   const toggleStatus = (id: string) => {
@@ -291,6 +370,7 @@ const App: React.FC = () => {
     setHabits(prev => [...prev, newHabit]);
     setHabitTitle('');
     setIsHabitModalOpen(false);
+    addToast("Novo Hábito", "A consistência é o segredo do sucesso.", "success");
   };
 
   const toggleHabit = (id: string) => {
@@ -298,16 +378,23 @@ const App: React.FC = () => {
     setHabits(prev => prev.map(h => h.id === id ? { ...h, completedDates: h.completedDates.includes(today) ? h.completedDates.filter(d => d !== today) : [...h.completedDates, today] } : h));
   };
 
-  const deleteHabit = (id: string) => setHabits(prev => prev.filter(h => h.id !== id));
+  const deleteHabit = (id: string) => {
+    setHabits(prev => prev.filter(h => h.id !== id));
+    addToast("Removido", "O hábito foi excluído.", "info");
+  };
 
   const addNote = () => {
     if (!newNoteContent.trim()) return;
     const newNote: Note = { id: Math.random().toString(36).substr(2, 9), content: newNoteContent, createdAt: Date.now() };
     setNotes(prev => [newNote, ...prev]);
     setNewNoteContent('');
+    addToast("Nota Salva", "Sua ideia está protegida.", "success");
   };
 
-  const deleteNote = (id: string) => setNotes(prev => prev.filter(n => n.id !== id));
+  const deleteNote = (id: string) => {
+    setNotes(prev => prev.filter(n => n.id !== id));
+    addToast("Excluída", "A nota foi removida.", "info");
+  };
 
   const moveTask = useCallback((taskId: string, direction: 'up' | 'down') => {
     setTasks(prev => {
@@ -324,10 +411,33 @@ const App: React.FC = () => {
     });
   }, [activeCriterion]);
 
-  // Tela de Login / Modo Guest
+  // Toast Overlay
+  const ToastOverlay = () => (
+    <div className="fixed top-6 right-6 z-[100] flex flex-col gap-4 pointer-events-none w-full max-w-sm">
+      {toasts.map(t => (
+        <div key={t.id} className={`pointer-events-auto flex items-center gap-4 p-5 rounded-[2rem] border ${theme.border} ${theme.cardBg} shadow-2xl backdrop-blur-xl animate-in slide-in-from-right-10 duration-500 overflow-hidden relative group`}>
+          <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${t.type === 'success' ? 'bg-emerald-500' : t.type === 'warning' ? 'bg-amber-500' : 'bg-indigo-500'}`} />
+          <div className={`shrink-0 p-2.5 rounded-2xl ${t.type === 'success' ? 'bg-emerald-500/10 text-emerald-500' : t.type === 'warning' ? 'bg-amber-500/10 text-amber-500' : 'bg-indigo-500/10 text-indigo-500'}`}>
+            {/* Added logic for AlertTriangle to show on warning types */}
+            {t.type === 'success' ? <Check size={20} /> : t.type === 'warning' ? <AlertTriangle size={20} /> : <Info size={20} />}
+          </div>
+          <div className="flex-1">
+            <h4 className={`text-sm font-black uppercase tracking-widest ${theme.textPrimary}`}>{t.title}</h4>
+            <p className={`text-xs font-medium ${theme.textSecondary} mt-0.5 leading-relaxed`}>{t.message}</p>
+          </div>
+          <button onClick={() => setToasts(prev => prev.filter(toast => toast.id !== t.id))} className={`p-2 rounded-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-white/5 transition-all`}>
+            <X size={16} />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+
+  // Auth Screen
   if (!user && !isGuest) {
     return (
       <div className={`flex items-center justify-center h-screen ${theme.mainBg} overflow-hidden transition-all duration-300 relative`}>
+        <ToastOverlay />
         {theme.bgImage && (
           <div className="absolute inset-0 z-0 bg-cover bg-center pointer-events-none"
             style={{ backgroundImage: `url(${theme.bgImage})`, opacity: theme.bgOpacity ?? 0.1 }} />
@@ -346,14 +456,7 @@ const App: React.FC = () => {
               <label className={`text-[10px] font-black uppercase tracking-widest ${theme.textSecondary} ml-3`}>Seu Nome</label>
               <div className="relative">
                 <UserIcon size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input 
-                  type="text" 
-                  required
-                  value={loginName}
-                  onChange={e => setLoginName(e.target.value)}
-                  placeholder="Ex: Edgar Faial"
-                  className={`w-full pl-12 pr-6 py-4 rounded-2xl border ${theme.border} ${theme.inputBg} ${theme.textPrimary} outline-none focus:ring-4 focus:ring-indigo-500/10 font-bold`}
-                />
+                <input type="text" required value={loginName} onChange={e => setLoginName(e.target.value)} placeholder="Ex: Edgar Faial" className={`w-full pl-12 pr-6 py-4 rounded-2xl border ${theme.border} ${theme.inputBg} ${theme.textPrimary} outline-none focus:ring-4 focus:ring-indigo-500/10 font-bold`} />
               </div>
             </div>
 
@@ -361,22 +464,11 @@ const App: React.FC = () => {
               <label className={`text-[10px] font-black uppercase tracking-widest ${theme.textSecondary} ml-3`}>Seu E-mail</label>
               <div className="relative">
                 <Mail size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input 
-                  type="email" 
-                  required
-                  value={loginEmail}
-                  onChange={e => setLoginEmail(e.target.value)}
-                  placeholder="email@exemplo.com"
-                  className={`w-full pl-12 pr-6 py-4 rounded-2xl border ${theme.border} ${theme.inputBg} ${theme.textPrimary} outline-none focus:ring-4 focus:ring-indigo-500/10 font-bold`}
-                />
+                <input type="email" required value={loginEmail} onChange={e => setLoginEmail(e.target.value)} placeholder="email@exemplo.com" className={`w-full pl-12 pr-6 py-4 rounded-2xl border ${theme.border} ${theme.inputBg} ${theme.textPrimary} outline-none focus:ring-4 focus:ring-indigo-500/10 font-bold`} />
               </div>
             </div>
 
-            <button 
-              type="submit" 
-              disabled={authLoading}
-              className={`w-full py-5 ${theme.accent} text-white font-black uppercase text-xs tracking-[0.2em] rounded-2xl shadow-xl hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-3 disabled:opacity-50`}
-            >
+            <button type="submit" disabled={authLoading} className={`w-full py-5 ${theme.accent} text-white font-black uppercase text-xs tracking-[0.2em] rounded-2xl shadow-xl hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-3 disabled:opacity-50`}>
               {authLoading ? <Loader2 className="animate-spin" size={20} /> : <LogIn size={20} />}
               Entrar no RankFlow
             </button>
@@ -388,19 +480,14 @@ const App: React.FC = () => {
             <div className={`flex-1 h-[1px] ${theme.border} opacity-20`} />
           </div>
 
-          <button 
-            onClick={handleGuestMode}
-            className={`w-full py-4 border-2 border-dashed ${theme.border} ${theme.textSecondary} font-black text-xs uppercase tracking-[0.2em] rounded-2xl hover:bg-slate-100 dark:hover:bg-white/5 transition-all flex items-center justify-center gap-3`}
-          >
-            <Shield size={16} />
-            Permanecer Desconectado
+          <button onClick={handleGuestMode} className={`w-full py-4 border-2 border-dashed ${theme.border} ${theme.textSecondary} font-black text-xs uppercase tracking-[0.2em] rounded-2xl hover:bg-slate-100 dark:hover:bg-white/5 transition-all flex items-center justify-center gap-3`}>
+            <Shield size={16} /> Permanecer Desconectado
           </button>
         </div>
       </div>
     );
   }
 
-  // Splash screen apenas se estiver tentando carregar dados da nuvem
   if (user && isMongoLoading) {
     return (
       <div className="flex items-center justify-center h-screen bg-slate-900 text-white">
@@ -423,6 +510,7 @@ const App: React.FC = () => {
 
   return (
     <div className={`flex flex-col md:flex-row h-screen max-h-screen overflow-hidden ${theme.mainBg} transition-all duration-300 relative`}>
+      <ToastOverlay />
       {theme.bgImage && (
         <div className="absolute inset-0 z-0 bg-cover bg-center pointer-events-none"
           style={{ backgroundImage: `url(${theme.bgImage})`, opacity: theme.bgOpacity ?? 0.1 }} />
@@ -449,9 +537,7 @@ const App: React.FC = () => {
         <div className="mt-auto pt-6 border-t border-white/10 mb-4 px-2">
            <div className="flex items-center gap-3 text-slate-400 px-3 py-2">
              <UserIcon size={20} />
-             <p className="text-sm font-bold truncate">
-               {user ? user.name : 'Convidado'}
-             </p>
+             <p className="text-sm font-bold truncate">{user ? user.name : 'Convidado'}</p>
            </div>
         </div>
       </aside>
@@ -460,23 +546,24 @@ const App: React.FC = () => {
         <header className={`${theme.headerBg} border-b ${theme.border} px-8 py-5 flex items-center justify-between z-10 backdrop-blur-md bg-opacity-80`}>
           <div className="flex items-center gap-4">
             <h2 className={`text-xl font-black ${theme.textPrimary} tracking-tight`}>
-              {view === 'tasks' ? 'Otimizar Tarefas' : 
-               view === 'habits' ? 'Hábitos' : 
-               view === 'notes' ? 'Notas Rápidas' : 
-               navItems.find(n => n.id === view)?.label}
+              {view === 'tasks' ? 'Otimizar Tarefas' : view === 'habits' ? 'Hábitos' : view === 'notes' ? 'Notas Rápidas' : navItems.find(n => n.id === view)?.label}
             </h2>
-            {(!isCloudActive && showOfflineNotice) && (
-              <div className="flex items-center gap-2 px-3 py-1 bg-amber-500/10 text-amber-500 rounded-full border border-amber-500/20" title="Modo Offline - Salvando apenas localmente">
-                <CloudOff size={14} />
-                <span className="text-[10px] font-black uppercase tracking-widest">Offline</span>
-                <button 
-                  onClick={() => setShowOfflineNotice(false)}
-                  className="ml-1 p-0.5 hover:bg-amber-500/20 rounded-full transition-colors"
-                >
-                  <X size={12} />
-                </button>
-              </div>
-            )}
+            <div className="flex items-center gap-2">
+              {(!isCloudActive && showOfflineNotice) && (
+                <div className="flex items-center gap-2 px-3 py-1 bg-amber-500/10 text-amber-500 rounded-full border border-amber-500/20">
+                  <CloudOff size={14} />
+                  <span className="text-[10px] font-black uppercase tracking-widest">Offline</span>
+                  <button onClick={() => setShowOfflineNotice(false)} className="ml-1 p-0.5 hover:bg-amber-500/20 rounded-full"><X size={12}/></button>
+                </div>
+              )}
+              <button 
+                onClick={requestNotificationPermission}
+                className={`p-2 rounded-xl transition-all ${notificationPermission === 'granted' ? 'text-indigo-500 bg-indigo-500/10' : 'text-slate-400 hover:bg-slate-100'}`}
+                title={notificationPermission === 'granted' ? "Notificações Ativas" : "Ativar Notificações"}
+              >
+                {notificationPermission === 'granted' ? <Bell size={20}/> : <BellOff size={20}/>}
+              </button>
+            </div>
           </div>
           
           <div className="flex gap-3">
@@ -525,7 +612,18 @@ const App: React.FC = () => {
                 ) : (
                   <>
                     {sortedTasks.map((task, idx) => (
-                      <TaskCard key={task.id} task={task} criterion={activeCriterion} onMove={moveTask} onDelete={(id) => setTasks(prev => prev.filter(t => t.id !== id))} onToggleStatus={toggleStatus} isFirst={idx === 0} isLast={idx === sortedTasks.length - 1} />
+                      <TaskCard 
+                        key={task.id} 
+                        task={task} 
+                        criterion={activeCriterion} 
+                        onMove={moveTask} 
+                        onDelete={(id) => setTasks(prev => prev.filter(t => t.id !== id))} 
+                        onToggleStatus={toggleStatus} 
+                        isFirst={idx === 0} 
+                        isLast={idx === sortedTasks.length - 1}
+                        onDragStart={() => handleTaskDragStart(task.id)}
+                        onDrop={() => handleTaskDrop(task.id)}
+                      />
                     ))}
                     <AdBanner />
                   </>
@@ -564,30 +662,19 @@ const App: React.FC = () => {
                 </div>
               )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                {notes.length === 0 ? (
-                  <div className="col-span-full py-20 text-center opacity-30">
-                    <StickyNote size={64} className="mx-auto mb-4" />
-                    <p className="font-black uppercase tracking-widest">Sem notas salvas</p>
-                  </div>
-                ) : (
-                  <>
-                    {notes.map(note => (
-                      <div key={note.id} className={`${theme.cardBg} p-6 rounded-3xl border ${theme.border} shadow-lg hover:shadow-xl transition-all group flex flex-col justify-between h-48`}>
-                        <p className={`text-sm ${theme.textPrimary} font-medium line-clamp-4 leading-relaxed`}>{note.content}</p>
-                        <div className="flex items-center justify-between pt-4 mt-auto border-t border-slate-100 dark:border-white/5">
-                          <div className="flex gap-1">
-                            <button onClick={() => { setNewTitle(note.content); setIsModalOpen(true); }} className="p-2 rounded-xl bg-indigo-500/10 text-indigo-500 hover:bg-indigo-500 hover:text-white transition-all"><ListOrdered size={16} /></button>
-                            <button onClick={() => { setHabitTitle(note.content); setIsHabitModalOpen(true); }} className="p-2 rounded-xl bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500 hover:text-white transition-all"><Repeat size={16} /></button>
-                          </div>
-                          <button onClick={() => deleteNote(note.id)} className="p-2 text-rose-500 opacity-0 group-hover:opacity-100 hover:bg-rose-500 hover:text-white rounded-xl transition-all"><Trash2 size={16} /></button>
-                        </div>
+                {notes.map(note => (
+                  <div key={note.id} className={`${theme.cardBg} p-6 rounded-3xl border ${theme.border} shadow-lg hover:shadow-xl transition-all group flex flex-col justify-between h-48`}>
+                    <p className={`text-sm ${theme.textPrimary} font-medium line-clamp-4 leading-relaxed`}>{note.content}</p>
+                    <div className="flex items-center justify-between pt-4 mt-auto border-t border-slate-100 dark:border-white/5">
+                      <div className="flex gap-1">
+                        <button onClick={() => { setNewTitle(note.content); setIsModalOpen(true); }} className="p-2 rounded-xl bg-indigo-500/10 text-indigo-500 hover:bg-indigo-500 hover:text-white transition-all"><ListOrdered size={16} /></button>
+                        <button onClick={() => { setHabitTitle(note.content); setIsHabitModalOpen(true); }} className="p-2 rounded-xl bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500 hover:text-white transition-all"><Repeat size={16} /></button>
                       </div>
-                    ))}
-                    <div className="col-span-full">
-                      <AdBanner />
+                      <button onClick={() => deleteNote(note.id)} className="p-2 text-rose-500 opacity-0 group-hover:opacity-100 hover:bg-rose-500 hover:text-white rounded-xl transition-all"><Trash2 size={16} /></button>
                     </div>
-                  </>
-                )}
+                  </div>
+                ))}
+                {notes.length > 0 && <div className="col-span-full"><AdBanner /></div>}
               </div>
             </div>
           )}
@@ -645,26 +732,26 @@ const App: React.FC = () => {
               <div className={`${theme.cardBg} border ${theme.border} rounded-[3rem] overflow-hidden shadow-2xl backdrop-blur-md`}>
                 <div className={`p-8 border-b ${theme.border} flex items-center justify-between`}>
                   <div>
-                    <h3 className={`text-xl font-black ${theme.textPrimary} tracking-tighter`}>Gestão de Dados</h3>
-                    <p className={`text-xs ${theme.textSecondary} font-medium`}>Controle seus backups e sessão.</p>
+                    <h3 className={`text-xl font-black ${theme.textPrimary} tracking-tighter`}>Notificações & Dados</h3>
+                    <p className={`text-xs ${theme.textSecondary} font-medium`}>Ajustes do sistema.</p>
                   </div>
-                  <div className={`p-3 rounded-2xl ${isCloudActive ? 'bg-indigo-100 text-indigo-600' : 'bg-amber-100 text-amber-600'}`}>
-                    {isCloudActive ? <Shield size={20} /> : <CloudOff size={20} />}
+                  <div className={`p-3 rounded-2xl ${notificationPermission === 'granted' ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-400'}`}>
+                    <Bell size={20} />
                   </div>
                 </div>
-                <div className="p-8 space-y-4">
+                <div className="p-8 space-y-6">
+                  <div className="flex items-center justify-between p-4 bg-slate-100/50 dark:bg-white/5 rounded-2xl">
+                    <span className={`text-xs font-black uppercase tracking-widest ${theme.textPrimary}`}>Ativar Lembretes</span>
+                    <button onClick={requestNotificationPermission} className={`w-12 h-6 rounded-full transition-all relative ${notificationsEnabled ? 'bg-indigo-500' : 'bg-slate-300'}`}>
+                      <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${notificationsEnabled ? 'left-7' : 'left-1'}`} />
+                    </button>
+                  </div>
                   <div className="grid grid-cols-2 gap-4">
-                    <button onClick={exportData} className={`flex items-center justify-center gap-3 p-4 rounded-2xl bg-indigo-500/10 text-indigo-500 border border-indigo-500/20 font-black text-[10px] uppercase tracking-widest hover:bg-indigo-500/20 transition-all`}>
-                      <Download size={18} /> Exportar
-                    </button>
-                    <button onClick={() => fileInputRef.current?.click()} className={`flex items-center justify-center gap-3 p-4 rounded-2xl bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 font-black text-[10px] uppercase tracking-widest hover:bg-emerald-500/20 transition-all`}>
-                      <Upload size={18} /> Importar
-                    </button>
+                    <button onClick={exportData} className="flex items-center justify-center gap-3 p-4 rounded-2xl bg-indigo-500/10 text-indigo-500 border border-indigo-500/20 font-black text-[10px] uppercase tracking-widest hover:bg-indigo-500/20 transition-all"><Download size={18} /> Exportar</button>
+                    <button onClick={() => fileInputRef.current?.click()} className="flex items-center justify-center gap-3 p-4 rounded-2xl bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 font-black text-[10px] uppercase tracking-widest hover:bg-emerald-500/20 transition-all"><Upload size={18} /> Importar</button>
                     <input type="file" ref={fileInputRef} onChange={handleImport} className="hidden" accept=".json" />
                   </div>
-                  <button onClick={handleLogout} className={`w-full flex items-center justify-center gap-3 p-5 rounded-3xl border-2 border-rose-500/20 text-rose-500 font-black text-xs uppercase tracking-[0.2em] hover:bg-rose-500 hover:text-white transition-all`}>
-                    <LogOut size={18} /> Sair da Conta
-                  </button>
+                  <button onClick={handleLogout} className="w-full flex items-center justify-center gap-3 p-5 rounded-3xl border-2 border-rose-500/20 text-rose-500 font-black text-xs uppercase tracking-[0.2em] hover:bg-rose-500 hover:text-white transition-all"><LogOut size={18} /> Sair da Conta</button>
                 </div>
               </div>
               <AdBanner />
@@ -678,7 +765,7 @@ const App: React.FC = () => {
           <div className={`relative ${theme.cardBg} w-full max-w-xl rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in duration-300`}>
             <div className={`p-10 border-b ${theme.border} flex justify-between items-center bg-gradient-to-r from-indigo-500/10 to-transparent`}>
               <h3 className={`text-3xl font-black ${theme.textPrimary} tracking-tighter`}>Nova Missão</h3>
-              <button onClick={() => { setIsModalOpen(false); }} className="hover:rotate-90 transition-transform"><X size={32}/></button>
+              <button onClick={() => setIsModalOpen(false)} className="hover:rotate-90 transition-transform"><X size={32}/></button>
             </div>
             <div className="p-10 space-y-6">
               <input type="text" placeholder="Título..." value={newTitle} onChange={e => setNewTitle(e.target.value)} className={`w-full p-6 rounded-3xl border ${theme.border} ${theme.inputBg} ${theme.textPrimary} text-lg font-bold outline-none focus:ring-4 focus:ring-indigo-500/20`} />
@@ -701,7 +788,7 @@ const App: React.FC = () => {
           <div className={`relative ${theme.cardBg} w-full max-w-xl rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in duration-300`}>
             <div className={`p-10 border-b ${theme.border} flex justify-between items-center bg-gradient-to-r from-emerald-500/10 to-transparent`}>
               <h3 className={`text-3xl font-black ${theme.textPrimary} tracking-tighter`}>Novo Hábito</h3>
-              <button onClick={() => { setIsHabitModalOpen(false); }} className="hover:rotate-90 transition-transform"><X size={32}/></button>
+              <button onClick={() => setIsHabitModalOpen(false)} className="hover:rotate-90 transition-transform"><X size={32}/></button>
             </div>
             <div className="p-10 space-y-8">
               <input type="text" placeholder="ex: Meditação 10min..." value={habitTitle} onChange={e => setHabitTitle(e.target.value)} className={`w-full p-6 rounded-3xl border ${theme.border} ${theme.inputBg} ${theme.textPrimary} text-lg font-bold outline-none focus:ring-4 focus:ring-emerald-500/20`} />
