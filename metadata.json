@@ -4,5 +4,8 @@
   "description": "A productivity dashboard that leverages Gemini AI to rank and prioritize your daily habits and tasks for maximum flow and efficiency.",
   "requestFramePermissions": [
     "microphone"
+  ],
+  "permissions": [
+    "notifications"
   ]
 }
