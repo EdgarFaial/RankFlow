@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { 
   Plus, LayoutDashboard, ListOrdered, Sparkles, BrainCircuit, 
@@ -13,6 +12,7 @@ import { RANKING_CONFIGS } from './constants';
 import TaskCard from './components/TaskCard';
 import HabitCard from './components/HabitCard';
 import RankerHeader from './components/RankerHeader';
+import AdBanner from './components/AdBanner';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
 import { useMongoDB } from './hooks/useMongoDB';
 import { authService } from './services/authService';
@@ -523,9 +523,12 @@ const App: React.FC = () => {
                     <p className="text-xl font-bold italic">Nada por aqui ainda.</p>
                   </div>
                 ) : (
-                  sortedTasks.map((task, idx) => (
-                    <TaskCard key={task.id} task={task} criterion={activeCriterion} onMove={moveTask} onDelete={(id) => setTasks(prev => prev.filter(t => t.id !== id))} onToggleStatus={toggleStatus} isFirst={idx === 0} isLast={idx === sortedTasks.length - 1} />
-                  ))
+                  <>
+                    {sortedTasks.map((task, idx) => (
+                      <TaskCard key={task.id} task={task} criterion={activeCriterion} onMove={moveTask} onDelete={(id) => setTasks(prev => prev.filter(t => t.id !== id))} onToggleStatus={toggleStatus} isFirst={idx === 0} isLast={idx === sortedTasks.length - 1} />
+                    ))}
+                    <AdBanner />
+                  </>
                 )}
               </div>
             </div>
@@ -540,7 +543,10 @@ const App: React.FC = () => {
                     <p className="text-xl font-bold italic">Forje novos hábitos.</p>
                   </div>
                 ) : (
-                  habits.map(habit => <HabitCard key={habit.id} habit={habit} theme={theme} onToggle={toggleHabit} onDelete={deleteHabit} />)
+                  <>
+                    {habits.map(habit => <HabitCard key={habit.id} habit={habit} theme={theme} onToggle={toggleHabit} onDelete={deleteHabit} />)}
+                    <AdBanner />
+                  </>
                 )}
               </div>
             </div>
@@ -564,18 +570,23 @@ const App: React.FC = () => {
                     <p className="font-black uppercase tracking-widest">Sem notas salvas</p>
                   </div>
                 ) : (
-                  notes.map(note => (
-                    <div key={note.id} className={`${theme.cardBg} p-6 rounded-3xl border ${theme.border} shadow-lg hover:shadow-xl transition-all group flex flex-col justify-between h-48`}>
-                      <p className={`text-sm ${theme.textPrimary} font-medium line-clamp-4 leading-relaxed`}>{note.content}</p>
-                      <div className="flex items-center justify-between pt-4 mt-auto border-t border-slate-100 dark:border-white/5">
-                        <div className="flex gap-1">
-                          <button onClick={() => { setNewTitle(note.content); setIsModalOpen(true); }} className="p-2 rounded-xl bg-indigo-500/10 text-indigo-500 hover:bg-indigo-500 hover:text-white transition-all"><ListOrdered size={16} /></button>
-                          <button onClick={() => { setHabitTitle(note.content); setIsHabitModalOpen(true); }} className="p-2 rounded-xl bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500 hover:text-white transition-all"><Repeat size={16} /></button>
+                  <>
+                    {notes.map(note => (
+                      <div key={note.id} className={`${theme.cardBg} p-6 rounded-3xl border ${theme.border} shadow-lg hover:shadow-xl transition-all group flex flex-col justify-between h-48`}>
+                        <p className={`text-sm ${theme.textPrimary} font-medium line-clamp-4 leading-relaxed`}>{note.content}</p>
+                        <div className="flex items-center justify-between pt-4 mt-auto border-t border-slate-100 dark:border-white/5">
+                          <div className="flex gap-1">
+                            <button onClick={() => { setNewTitle(note.content); setIsModalOpen(true); }} className="p-2 rounded-xl bg-indigo-500/10 text-indigo-500 hover:bg-indigo-500 hover:text-white transition-all"><ListOrdered size={16} /></button>
+                            <button onClick={() => { setHabitTitle(note.content); setIsHabitModalOpen(true); }} className="p-2 rounded-xl bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500 hover:text-white transition-all"><Repeat size={16} /></button>
+                          </div>
+                          <button onClick={() => deleteNote(note.id)} className="p-2 text-rose-500 opacity-0 group-hover:opacity-100 hover:bg-rose-500 hover:text-white rounded-xl transition-all"><Trash2 size={16} /></button>
                         </div>
-                        <button onClick={() => deleteNote(note.id)} className="p-2 text-rose-500 opacity-0 group-hover:opacity-100 hover:bg-rose-500 hover:text-white rounded-xl transition-all"><Trash2 size={16} /></button>
                       </div>
+                    ))}
+                    <div className="col-span-full">
+                      <AdBanner />
                     </div>
-                  ))
+                  </>
                 )}
               </div>
             </div>
@@ -599,6 +610,7 @@ const App: React.FC = () => {
                   </div>
                 ))}
               </div>
+              <AdBanner />
             </div>
           )}
 
@@ -655,6 +667,7 @@ const App: React.FC = () => {
                   </button>
                 </div>
               </div>
+              <AdBanner />
             </div>
           )}
         </div>
