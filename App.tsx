@@ -422,7 +422,7 @@ const App: React.FC = () => {
   ];
 
   return (
-    <div className={`flex flex-col md:flex-row h-screen overflow-hidden ${theme.mainBg} transition-all duration-300 relative`}>
+    <div className={`flex flex-col md:flex-row h-screen max-h-screen overflow-hidden ${theme.mainBg} transition-all duration-300 relative`}>
       {theme.bgImage && (
         <div className="absolute inset-0 z-0 bg-cover bg-center pointer-events-none"
           style={{ backgroundImage: `url(${theme.bgImage})`, opacity: theme.bgOpacity ?? 0.1 }} />
@@ -434,7 +434,7 @@ const App: React.FC = () => {
           <h1 className="text-2xl font-black tracking-tighter">RankFlow</h1>
         </div>
         
-        <nav className="space-y-3 flex-1">
+        <nav className="space-y-3 flex-1 overflow-y-auto pr-2">
           {navItems.map(item => (
             <button key={item.id} onClick={() => setView(item.id as AppView)}
               className={`w-full flex items-center gap-4 px-5 py-4 rounded-2xl transition-all font-bold ${
@@ -456,7 +456,7 @@ const App: React.FC = () => {
         </div>
       </aside>
 
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden z-10 relative">
+      <main className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden z-10 relative">
         <header className={`${theme.headerBg} border-b ${theme.border} px-8 py-5 flex items-center justify-between z-10 backdrop-blur-md bg-opacity-80`}>
           <div className="flex items-center gap-4">
             <h2 className={`text-xl font-black ${theme.textPrimary} tracking-tight`}>
@@ -498,7 +498,7 @@ const App: React.FC = () => {
           </div>
         </header>
 
-        <div className={`md:hidden flex ${theme.headerBg} border-b ${theme.border} p-2`}>
+        <div className={`md:hidden flex ${theme.headerBg} border-b ${theme.border} p-2 shrink-0`}>
           {navItems.map(item => (
             <button key={item.id} onClick={() => setView(item.id as AppView)}
               className={`flex-1 flex flex-col items-center justify-center py-2 rounded-xl ${view === item.id ? theme.accent + ' text-white' : 'text-slate-500'}`}>
@@ -508,7 +508,7 @@ const App: React.FC = () => {
           ))}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6 md:p-10 space-y-10">
+        <div className="flex-1 overflow-y-auto p-6 md:p-10 space-y-10 min-h-0">
           {view === 'tasks' && (
             <div className="max-w-5xl mx-auto space-y-8 animate-fade-in">
               <div className="flex flex-wrap gap-4 justify-center md:justify-start">
