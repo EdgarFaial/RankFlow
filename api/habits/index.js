@@ -2,15 +2,14 @@
 import clientPromise from '../mongodb.js';
 
 export default async function handler(req, res) {
-  const origin = req.headers.origin;
-  const allowed = ['https://rank-flow-eta.vercel.app', 'http://localhost:3000', 'http://localhost:5173'];
-  
-  if (allowed.includes(origin)) res.setHeader('Access-Control-Allow-Origin', origin);
-  else res.setHeader('Access-Control-Allow-Origin', '*');
-  
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-user-email');
+
   if (req.method === 'OPTIONS') return res.status(200).end();
+
+  const userEmail = req.headers['x-user-email'];
+  if (!userEmail) return res.status(401).json({ error: 'USUARIO_NAO_IDENTIFICADO' });
 
   try {
     const client = await clientPromise;
@@ -18,17 +17,18 @@ export default async function handler(req, res) {
     const collection = db.collection('habits');
 
     if (req.method === 'GET') {
-      const docs = await collection.find({}).toArray();
-      const mapped = docs.map(({_id, ...rest}) => ({...rest, id: rest.id || _id.toString()}));
-      return res.status(200).json({ documents: mapped });
+      const documents = await collection.find({ userEmail }).toArray();
+      return res.status(200).json({ documents });
     }
 
     if (req.method === 'POST') {
-      await collection.deleteMany({});
       const habits = Array.isArray(req.body) ? req.body : [];
+      await collection.deleteMany({ userEmail });
+      
       if (habits.length > 0) {
         const sanitized = habits.map(({ _id, ...rest }) => ({
           ...rest,
+          userEmail,
           id: rest.id || (Math.random().toString(36).substr(2, 9))
         }));
         await collection.insertMany(sanitized);
@@ -36,7 +36,6 @@ export default async function handler(req, res) {
       return res.status(200).json({ success: true });
     }
   } catch (error) {
-    console.error('HABITS_ERROR:', error);
     return res.status(500).json({ error: error.message });
   }
 }

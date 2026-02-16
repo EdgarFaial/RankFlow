@@ -1,20 +1,18 @@
 
-/**
- * MongoDB Service atualizado para usar Serverless Functions (Backend na Vercel)
- * Centraliza o tratamento de dados no backend para evitar problemas de CORS e Driver.
- */
-
 import { Task, Habit, Note } from '../types';
 
 class MongoDBService {
   private online: boolean = true;
 
-  private async fetchApi(endpoint: string, method: string = 'GET', body?: any) {
+  private async fetchApi(endpoint: string, method: string = 'GET', body?: any, userEmail?: string) {
+    if (!userEmail) throw new Error("Usuário não identificado");
+
     try {
       const response = await fetch(`/api/${endpoint}`, {
         method,
         headers: {
           'Content-Type': 'application/json',
+          'x-user-email': userEmail
         },
         body: body ? JSON.stringify(body) : undefined
       });
@@ -33,59 +31,58 @@ class MongoDBService {
     }
   }
 
-  async connect(): Promise<boolean> {
+  async connect(userEmail: string): Promise<boolean> {
     try {
-      await this.fetchApi('tasks');
+      await this.fetchApi('tasks', 'GET', undefined, userEmail);
       return true;
     } catch (e) {
       return false;
     }
   }
 
-  async getAllTasks(): Promise<Task[] | null> {
+  async getAllTasks(userEmail: string): Promise<Task[] | null> {
     try {
-      const res = await this.fetchApi('tasks');
+      const res = await this.fetchApi('tasks', 'GET', undefined, userEmail);
       return res.documents || [];
     } catch { 
       return null; 
     }
   }
 
-  async saveTasks(tasks: Task[]) {
+  async saveTasks(tasks: Task[], userEmail: string) {
     try {
-      await this.fetchApi('tasks', 'POST', tasks);
+      await this.fetchApi('tasks', 'POST', tasks, userEmail);
     } catch { }
   }
 
-  async getAllHabits(): Promise<Habit[] | null> {
+  async getAllHabits(userEmail: string): Promise<Habit[] | null> {
     try {
-      const res = await this.fetchApi('habits');
+      const res = await this.fetchApi('habits', 'GET', undefined, userEmail);
       return res.documents || [];
     } catch { return null; }
   }
 
-  async saveHabits(habits: Habit[]) {
+  async saveHabits(habits: Habit[], userEmail: string) {
     try {
-      await this.fetchApi('habits', 'POST', habits);
+      await this.fetchApi('habits', 'POST', habits, userEmail);
     } catch { }
   }
 
-  async getAllNotes(): Promise<Note[] | null> {
+  async getAllNotes(userEmail: string): Promise<Note[] | null> {
     try {
-      const res = await this.fetchApi('notes');
+      const res = await this.fetchApi('notes', 'GET', undefined, userEmail);
       return res.documents || [];
     } catch { return null; }
   }
 
-  async saveNotes(notes: Note[]) {
+  async saveNotes(notes: Note[], userEmail: string) {
     try {
-      await this.fetchApi('notes', 'POST', notes);
+      await this.fetchApi('notes', 'POST', notes, userEmail);
     } catch { }
   }
 
   async saveSettings(settings: any) {
-    // Sincronização de preferências pode ser implementada aqui
-    console.debug("Configurações locais prontas para nuvem.", settings);
+    console.debug("Configurações locais salvas.", settings);
   }
 }
 

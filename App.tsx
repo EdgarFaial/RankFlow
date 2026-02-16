@@ -17,7 +17,6 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { useMongoDB } from './hooks/useMongoDB';
 import { authService } from './services/authService';
 
-// FIX: Added missing themesList constant used in the settings view to allow theme selection.
 const themesList: { id: ThemeName; label: string; color: string }[] = [
   { id: 'default', label: 'Padrão', color: 'bg-indigo-500' },
   { id: 'cyberpunk', label: 'Cyberpunk', color: 'bg-fuchsia-500' },
@@ -26,9 +25,17 @@ const themesList: { id: ThemeName; label: string; color: string }[] = [
 ];
 
 const App: React.FC = () => {
+  // Estados de Autenticação
+  const [user, setUser] = useState<User | null>(() => {
+    const saved = localStorage.getItem('rankflow_user');
+    return saved ? JSON.parse(saved) : null;
+  });
+  const [authLoading, setAuthLoading] = useState(false);
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginName, setLoginName] = useState('');
+
   const {
     isLoading: isMongoLoading,
-    error: mongoError,
     isInitialized,
     loadTasks,
     saveTasks,
@@ -37,17 +44,7 @@ const App: React.FC = () => {
     loadNotes,
     saveNotes,
     saveSettings
-  } = useMongoDB();
-
-  // Estados de Autenticação
-  const [user, setUser] = useState<User | null>(() => {
-    const saved = localStorage.getItem('rankflow_user');
-    return saved ? JSON.parse(saved) : null;
-  });
-  const [isGuest, setIsGuest] = useState(() => localStorage.getItem('rankflow_is_guest') === 'true');
-  const [authLoading, setAuthLoading] = useState(false);
-  const [loginEmail, setLoginEmail] = useState('');
-  const [loginName, setLoginName] = useState('');
+  } = useMongoDB(user);
 
   // Estados principais
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -63,9 +60,7 @@ const App: React.FC = () => {
   
   // Integrações
   const [isGCalConnected, setIsGCalConnected] = useState(() => localStorage.getItem('rankflow_gcal_connected') === 'true');
-  const [isSyncing, setIsSyncing] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(() => localStorage.getItem('rankflow_notifications') === 'true');
-  const [copySuccess, setCopySuccess] = useState(false);
 
   // Modais e UI
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -89,9 +84,7 @@ const App: React.FC = () => {
     try {
       const loggedUser = await authService.login(loginEmail, loginName);
       setUser(loggedUser);
-      setIsGuest(false);
       localStorage.setItem('rankflow_user', JSON.stringify(loggedUser));
-      localStorage.removeItem('rankflow_is_guest');
     } catch (err) {
       alert('Erro ao entrar. Tente novamente.');
     } finally {
@@ -99,39 +92,19 @@ const App: React.FC = () => {
     }
   };
 
-  const handleGoogleLogin = async () => {
-    setAuthLoading(true);
-    try {
-      const loggedUser = await authService.loginWithGoogle();
-      setUser(loggedUser);
-      setIsGuest(false);
-      localStorage.setItem('rankflow_user', JSON.stringify(loggedUser));
-      localStorage.removeItem('rankflow_is_guest');
-    } catch (err) {
-      alert('Erro no login com Google.');
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  const handleGuestMode = () => {
-    setIsGuest(true);
-    setUser(null);
-    localStorage.setItem('rankflow_is_guest', 'true');
-    localStorage.removeItem('rankflow_user');
-  };
-
   const handleLogout = () => {
     setUser(null);
-    setIsGuest(false);
     localStorage.removeItem('rankflow_user');
-    localStorage.removeItem('rankflow_is_guest');
+    // Limpa estados locais ao deslogar
+    setTasks([]);
+    setHabits([]);
+    setNotes([]);
     setView('tasks');
   };
 
   useEffect(() => {
     const initializeData = async () => {
-      if (!user && !isGuest) return;
+      if (!user) return;
       setIsLoading(true);
       try {
         const [loadedTasks, loadedHabits, loadedNotes] = await Promise.all([
@@ -149,28 +122,28 @@ const App: React.FC = () => {
       }
     };
 
-    if (!isMongoLoading) {
+    if (!isMongoLoading && user) {
       initializeData();
     }
-  }, [isMongoLoading, loadTasks, loadHabits, loadNotes, user, isGuest]);
+  }, [isMongoLoading, loadTasks, loadHabits, loadNotes, user]);
 
   useEffect(() => {
-    if (!isLoading && !isMongoLoading) {
+    if (!isLoading && !isMongoLoading && user) {
       saveTasks(tasks);
     }
-  }, [tasks, saveTasks, isLoading, isMongoLoading]);
+  }, [tasks, saveTasks, isLoading, isMongoLoading, user]);
 
   useEffect(() => {
-    if (!isLoading && !isMongoLoading) {
+    if (!isLoading && !isMongoLoading && user) {
       saveHabits(habits);
     }
-  }, [habits, saveHabits, isLoading, isMongoLoading]);
+  }, [habits, saveHabits, isLoading, isMongoLoading, user]);
 
   useEffect(() => {
-    if (!isLoading && !isMongoLoading) {
+    if (!isLoading && !isMongoLoading && user) {
       saveNotes(notes);
     }
-  }, [notes, saveNotes, isLoading, isMongoLoading]);
+  }, [notes, saveNotes, isLoading, isMongoLoading, user]);
 
   useEffect(() => {
     const settings = {
@@ -212,31 +185,6 @@ const App: React.FC = () => {
     { name: 'Concluído', value: tasks.filter(t => t.status === TaskStatus.DONE).length, fill: '#10b981' }
   ], [tasks]);
 
-  const connectGCal = () => {
-    setIsSyncing(true);
-    setTimeout(() => {
-      setIsGCalConnected(true);
-      setIsSyncing(false);
-      alert("RankFlow conectado ao Google Calendar!");
-    }, 1500);
-  };
-
-  const syncToGCal = () => {
-    if (!isGCalConnected) return;
-    setIsSyncing(true);
-    const syncCount = tasks.filter(t => t.dueDate && t.status === TaskStatus.TODO).length;
-    setTimeout(() => {
-      setIsSyncing(false);
-      alert(`${syncCount} tarefas sincronizadas.`);
-    }, 2000);
-  };
-
-  const requestNotificationPermission = async () => {
-    if (!("Notification" in window)) return;
-    const permission = await Notification.requestPermission();
-    setNotificationsEnabled(permission === "granted");
-  };
-
   const exportData = () => {
     const data = { tasks, habits, notes, themeName, themeMode, overrideBgUrl };
     const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
@@ -265,13 +213,6 @@ const App: React.FC = () => {
     };
     reader.readAsText(file);
     e.target.value = '';
-  };
-
-  const generateSyncCode = () => {
-    const code = btoa(JSON.stringify({ tasks, habits, notes }));
-    navigator.clipboard.writeText(code);
-    setCopySuccess(true);
-    setTimeout(() => setCopySuccess(false), 2000);
   };
 
   const addTask = useCallback(async () => {
@@ -344,7 +285,7 @@ const App: React.FC = () => {
   }, [activeCriterion]);
 
   // Pantalha de Login
-  if (!user && !isGuest) {
+  if (!user) {
     return (
       <div className={`flex items-center justify-center h-screen ${theme.mainBg} overflow-hidden transition-all duration-300 relative`}>
         {theme.bgImage && (
@@ -357,7 +298,7 @@ const App: React.FC = () => {
               <Sparkles size={40} />
             </div>
             <h1 className={`text-4xl font-black tracking-tighter ${theme.textPrimary}`}>RankFlow</h1>
-            <p className={`text-sm ${theme.textSecondary} mt-2 font-medium`}>Otimize sua rotina, alcance o flow.</p>
+            <p className={`text-sm ${theme.textSecondary} mt-2 font-medium`}>O seu espaço produtivo isolado.</p>
           </div>
 
           <form onSubmit={handleLogin} className="space-y-4">
@@ -367,6 +308,7 @@ const App: React.FC = () => {
                 <UserIcon size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input 
                   type="text" 
+                  required
                   value={loginName}
                   onChange={e => setLoginName(e.target.value)}
                   placeholder="Ex: Edgar Faial"
@@ -381,6 +323,7 @@ const App: React.FC = () => {
                 <Mail size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input 
                   type="email" 
+                  required
                   value={loginEmail}
                   onChange={e => setLoginEmail(e.target.value)}
                   placeholder="email@exemplo.com"
@@ -395,33 +338,13 @@ const App: React.FC = () => {
               className={`w-full py-5 ${theme.accent} text-white font-black uppercase text-xs tracking-[0.2em] rounded-2xl shadow-xl hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-3 disabled:opacity-50`}
             >
               {authLoading ? <Loader2 className="animate-spin" size={20} /> : <LogIn size={20} />}
-              Entrar no App
+              Entrar no RankFlow
             </button>
           </form>
 
-          <div className="my-8 flex items-center gap-4">
-            <div className={`flex-1 h-[1px] ${theme.border} opacity-20`} />
-            <span className={`text-[10px] font-black uppercase tracking-widest ${theme.textSecondary}`}>ou</span>
-            <div className={`flex-1 h-[1px] ${theme.border} opacity-20`} />
-          </div>
-
-          <div className="grid grid-cols-1 gap-4">
-            <button 
-              onClick={handleGoogleLogin}
-              className={`w-full py-4 bg-white dark:bg-slate-800 border ${theme.border} ${theme.textPrimary} font-bold text-xs uppercase tracking-widest rounded-2xl shadow-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-all flex items-center justify-center gap-3`}
-            >
-              <img src="https://www.google.com/favicon.ico" className="w-4 h-4" />
-              Entrar com Google
-            </button>
-
-            <button 
-              onClick={handleGuestMode}
-              className={`w-full py-4 border-2 border-dashed ${theme.border} ${theme.textSecondary} font-black text-xs uppercase tracking-[0.2em] rounded-2xl hover:bg-slate-100 dark:hover:bg-white/5 transition-all flex items-center justify-center gap-3`}
-            >
-              <Shield size={16} />
-              Permanecer Desconectado
-            </button>
-          </div>
+          <p className="text-center mt-8 text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-relaxed">
+            Seus dados são salvos na nuvem e vinculados <br/> exclusivamente ao seu e-mail.
+          </p>
         </div>
       </div>
     );
@@ -434,7 +357,7 @@ const App: React.FC = () => {
         <div className="text-center">
           <Loader2 size={48} className="animate-spin mx-auto mb-4 text-indigo-500" />
           <h1 className="text-2xl font-black tracking-tighter mb-2">RankFlow</h1>
-          <p className="text-slate-400">Preparando seu Flow...</p>
+          <p className="text-slate-400">Carregando seu workspace pessoal...</p>
         </div>
       </div>
     );
@@ -473,15 +396,13 @@ const App: React.FC = () => {
           ))}
         </nav>
 
-        {user && (
-          <div className="mt-auto pt-6 border-t border-white/10 flex items-center gap-3 mb-4">
-             <img src={user.avatar} className="w-10 h-10 rounded-xl border-2 border-white/20" />
-             <div className="flex-1 overflow-hidden">
-               <p className="text-xs font-black truncate">{user.name}</p>
-               <p className="text-[10px] opacity-50 truncate">{user.email}</p>
-             </div>
-          </div>
-        )}
+        <div className="mt-auto pt-6 border-t border-white/10 flex items-center gap-3 mb-4">
+           <img src={user.avatar} className="w-10 h-10 rounded-xl border-2 border-white/20" />
+           <div className="flex-1 overflow-hidden">
+             <p className="text-xs font-black truncate">{user.name}</p>
+             <p className="text-[10px] opacity-50 truncate">{user.email}</p>
+           </div>
+        </div>
 
         <div className="pt-4 opacity-40 text-[10px] text-center font-black uppercase tracking-[0.2em]">
           FLOW RADICAL

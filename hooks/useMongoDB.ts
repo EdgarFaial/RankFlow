@@ -1,18 +1,19 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { mongoDB } from '../services/mongoDBService';
-import { Task, Habit, Note } from '../types';
+import { Task, Habit, Note, User } from '../types';
 
-export const useMongoDB = () => {
+export const useMongoDB = (user: User | null) => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
 
   useEffect(() => {
     const initializeMongoDB = async () => {
+      if (!user?.email) return;
       try {
         setIsLoading(true);
-        const connected = await mongoDB.connect();
+        const connected = await mongoDB.connect(user.email);
         if (connected) {
           setIsInitialized(true);
           setError(null);
@@ -29,58 +30,58 @@ export const useMongoDB = () => {
     };
 
     initializeMongoDB();
-  }, []);
+  }, [user]);
 
   const loadTasks = useCallback(async (): Promise<Task[]> => {
-    if (isInitialized) {
+    if (isInitialized && user?.email) {
       try {
-        const cloudTasks = await mongoDB.getAllTasks();
+        const cloudTasks = await mongoDB.getAllTasks(user.email);
         if (cloudTasks) return cloudTasks;
       } catch (err) {}
     }
     return JSON.parse(localStorage.getItem('rankflow_tasks') || '[]');
-  }, [isInitialized]);
+  }, [isInitialized, user]);
 
   const saveTasks = useCallback(async (tasks: Task[]) => {
     localStorage.setItem('rankflow_tasks', JSON.stringify(tasks));
-    if (isInitialized) {
-      try { await mongoDB.saveTasks(tasks); } catch (err) {}
+    if (isInitialized && user?.email) {
+      try { await mongoDB.saveTasks(tasks, user.email); } catch (err) {}
     }
-  }, [isInitialized]);
+  }, [isInitialized, user]);
 
   const loadHabits = useCallback(async (): Promise<Habit[]> => {
-    if (isInitialized) {
+    if (isInitialized && user?.email) {
       try {
-        const cloudHabits = await mongoDB.getAllHabits();
+        const cloudHabits = await mongoDB.getAllHabits(user.email);
         if (cloudHabits) return cloudHabits;
       } catch (err) {}
     }
     return JSON.parse(localStorage.getItem('rankflow_habits') || '[]');
-  }, [isInitialized]);
+  }, [isInitialized, user]);
 
   const saveHabits = useCallback(async (habits: Habit[]) => {
     localStorage.setItem('rankflow_habits', JSON.stringify(habits));
-    if (isInitialized) {
-      try { await mongoDB.saveHabits(habits); } catch (err) {}
+    if (isInitialized && user?.email) {
+      try { await mongoDB.saveHabits(habits, user.email); } catch (err) {}
     }
-  }, [isInitialized]);
+  }, [isInitialized, user]);
 
   const loadNotes = useCallback(async (): Promise<Note[]> => {
-    if (isInitialized) {
+    if (isInitialized && user?.email) {
       try {
-        const cloudNotes = await mongoDB.getAllNotes();
+        const cloudNotes = await mongoDB.getAllNotes(user.email);
         if (cloudNotes) return cloudNotes;
       } catch (err) {}
     }
     return JSON.parse(localStorage.getItem('rankflow_notes') || '[]');
-  }, [isInitialized]);
+  }, [isInitialized, user]);
 
   const saveNotes = useCallback(async (notes: Note[]) => {
     localStorage.setItem('rankflow_notes', JSON.stringify(notes));
-    if (isInitialized) {
-      try { await mongoDB.saveNotes(notes); } catch (err) {}
+    if (isInitialized && user?.email) {
+      try { await mongoDB.saveNotes(notes, user.email); } catch (err) {}
     }
-  }, [isInitialized]);
+  }, [isInitialized, user]);
 
   const saveSettings = useCallback(async (settings: any) => {
     Object.entries(settings).forEach(([key, value]) => {

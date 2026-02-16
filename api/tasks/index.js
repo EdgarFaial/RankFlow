@@ -4,9 +4,12 @@ import clientPromise from '../mongodb.js';
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-user-email');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
+
+  const userEmail = req.headers['x-user-email'];
+  if (!userEmail) return res.status(401).json({ error: 'USUARIO_NAO_IDENTIFICADO' });
 
   try {
     const client = await clientPromise;
@@ -14,20 +17,19 @@ export default async function handler(req, res) {
     const collection = db.collection('tasks');
 
     if (req.method === 'GET') {
-      const documents = await collection.find({}).toArray();
-      const mapped = documents.map(doc => {
-        const { _id, ...rest } = doc;
-        return { ...rest, id: rest.id || _id.toString() };
-      });
-      return res.status(200).json({ documents: mapped });
+      const documents = await collection.find({ userEmail }).toArray();
+      return res.status(200).json({ documents });
     }
 
     if (req.method === 'POST') {
       const tasks = Array.isArray(req.body) ? req.body : [];
-      await collection.deleteMany({});
+      // Remove apenas as tarefas deste usuário
+      await collection.deleteMany({ userEmail });
+      
       if (tasks.length > 0) {
         const sanitized = tasks.map(({ _id, ...rest }) => ({
           ...rest,
+          userEmail, // Vincula ao usuário
           id: rest.id || (Math.random().toString(36).substr(2, 9))
         }));
         await collection.insertMany(sanitized);
@@ -35,12 +37,6 @@ export default async function handler(req, res) {
       return res.status(200).json({ success: true });
     }
   } catch (error) {
-    console.error('TASK_API_ERROR:', error);
-    return res.status(500).json({ 
-      error: 'SERVER_ERROR', 
-      message: error.message,
-      code: error.code || 'N/A',
-      detail: 'Isso geralmente significa erro de senha na MONGODB_URI ou IP não liberado no Atlas (0.0.0.0/0).'
-    });
+    return res.status(500).json({ error: error.message });
   }
 }
