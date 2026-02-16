@@ -1,7 +1,7 @@
 
 /**
  * MongoDB Service atualizado para usar Serverless Functions (Backend na Vercel)
- * Isso resolve definitivamente os problemas de CORS.
+ * Centraliza o tratamento de dados no backend para evitar problemas de CORS e Driver.
  */
 
 import { Task, Habit, Note } from '../types';
@@ -20,12 +20,14 @@ class MongoDBService {
       });
 
       if (!response.ok) {
-        throw new Error(`API_ERROR_${response.status}`);
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `API_ERROR_${response.status}`);
       }
 
+      this.online = true;
       return await response.json();
     } catch (error) {
-      console.error(`Erro na API (${endpoint}):`, error);
+      console.warn(`Erro na API (${endpoint}):`, error);
       this.online = false;
       throw error;
     }
@@ -33,12 +35,9 @@ class MongoDBService {
 
   async connect(): Promise<boolean> {
     try {
-      // Tenta um GET simples em tasks para verificar a saúde da API/Conexão
       await this.fetchApi('tasks');
-      this.online = true;
       return true;
     } catch (e) {
-      this.online = false;
       return false;
     }
   }
@@ -47,20 +46,15 @@ class MongoDBService {
     try {
       const res = await this.fetchApi('tasks');
       return res.documents || [];
-    } catch (e) { 
+    } catch { 
       return null; 
     }
   }
 
   async saveTasks(tasks: Task[]) {
-    if (!this.online) return;
     try {
-      // Remove campos indesejados antes de enviar se necessário
-      const sanitized = tasks.map(({ lastNotified, ...rest }) => ({ ...rest }));
-      await this.fetchApi('tasks', 'POST', sanitized);
-    } catch (e) { 
-      console.error("Erro ao salvar tarefas:", e);
-    }
+      await this.fetchApi('tasks', 'POST', tasks);
+    } catch { }
   }
 
   async getAllHabits(): Promise<Habit[] | null> {
@@ -71,7 +65,6 @@ class MongoDBService {
   }
 
   async saveHabits(habits: Habit[]) {
-    if (!this.online) return;
     try {
       await this.fetchApi('habits', 'POST', habits);
     } catch { }
@@ -85,16 +78,14 @@ class MongoDBService {
   }
 
   async saveNotes(notes: Note[]) {
-    if (!this.online) return;
     try {
       await this.fetchApi('notes', 'POST', notes);
     } catch { }
   }
 
   async saveSettings(settings: any) {
-    // Para simplificar, as configurações podem ser salvas em uma coleção dedicada via endpoint genérico ou específico
-    // Por enquanto, as configurações principais já estão sendo persistidas no localStorage via App.tsx
-    console.log("Sincronizando configurações com a nuvem...", settings);
+    // Sincronização de preferências pode ser implementada aqui
+    console.debug("Configurações locais prontas para nuvem.", settings);
   }
 }
 
