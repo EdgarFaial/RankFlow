@@ -6,8 +6,7 @@ import {
   Settings as SettingsIcon, Moon, Sun, Repeat,
   TrendingUp, Award, CheckCircle, Download, Upload, Bell, BellOff, Copy, Check,
   StickyNote, ArrowRightLeft, Trash2, Calendar, LogIn, LogOut, User as UserIcon, Mail, Shield, CloudOff, Info,
-  // Added AlertTriangle to fix the reference error on line 419
-  AlertTriangle
+  AlertTriangle, RefreshCw
 } from 'lucide-react';
 import { Task, TaskStatus, RankingCriterion, AppView, Habit, HabitFrequency, Note, User } from './types';
 import { ThemeMode, ThemeName, THEME_MAP } from './themes/theme';
@@ -63,9 +62,16 @@ const App: React.FC = () => {
   const [activeCriterion, setActiveCriterion] = useState<RankingCriterion>('priorityRank');
   const [view, setView] = useState<AppView>('tasks');
   const [showOfflineNotice, setShowOfflineNotice] = useState(true);
+  const [lastSync, setLastSync] = useState<number>(Date.now());
+  const [isSyncing, setIsSyncing] = useState(false);
   
-  // Flag crítica para evitar sobrescrever dados da nuvem com estado vazio durante o boot
+  // Flags para controle de sincronização
   const [isDataReady, setIsDataReady] = useState(false);
+  const skipNextSaveRef = useRef<{tasks: boolean, habits: boolean, notes: boolean}>({
+    tasks: false,
+    habits: false,
+    notes: false
+  });
   
   // Drag and Drop State
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
@@ -118,7 +124,7 @@ const App: React.FC = () => {
       const loggedUser = await authService.login(loginEmail, loginName);
       setUser(loggedUser);
       setIsGuest(false);
-      setIsDataReady(false); // Reset para forçar novo carregamento
+      setIsDataReady(false);
       localStorage.setItem('rankflow_user', JSON.stringify(loggedUser));
       localStorage.removeItem('rankflow_is_guest');
       addToast("Sucesso", "Bem-vindo ao RankFlow!", "success");
@@ -132,7 +138,7 @@ const App: React.FC = () => {
   const handleGuestMode = () => {
     setIsGuest(true);
     setUser(null);
-    setIsDataReady(false); // Reset para forçar carregamento local
+    setIsDataReady(false);
     localStorage.setItem('rankflow_is_guest', 'true');
     localStorage.removeItem('rankflow_user');
     addToast("Modo Convidado", "Dados salvos apenas neste navegador.", "info");
@@ -151,54 +157,93 @@ const App: React.FC = () => {
     addToast("Até logo", "Sua sessão foi encerrada.", "info");
   };
 
-  // Inicialização de dados - Unificado e Seguro
-  useEffect(() => {
-    const initializeData = async () => {
-      if (!user && !isGuest) return;
-      if (isDataReady) return; // Evita carregar múltiplas vezes se já estiver pronto
+  // Função de sincronização periódica (Refresh)
+  const refreshData = useCallback(async (silent = true) => {
+    if (!user && !isGuest) return;
+    if (!silent) setIsSyncing(true);
 
-      try {
-        const [loadedTasks, loadedHabits, loadedNotes] = await Promise.all([
-          loadTasks(),
-          loadHabits(),
-          loadNotes()
-        ]);
-        
-        // Atualiza os estados
+    try {
+      const [loadedTasks, loadedHabits, loadedNotes] = await Promise.all([
+        loadTasks(),
+        loadHabits(),
+        loadNotes()
+      ]);
+      
+      // Só atualiza se houver mudança real e marca para NÃO disparar o save back
+      if (JSON.stringify(loadedTasks) !== JSON.stringify(tasks)) {
+        skipNextSaveRef.current.tasks = true;
         setTasks(loadedTasks || []);
-        setHabits(loadedHabits || []);
-        setNotes(loadedNotes || []);
-        
-        // MARCA COMO PRONTO apenas após as atualizações de estado
-        setIsDataReady(true);
-      } catch (error) {
-        console.error('Erro ao carregar dados:', error);
-        // Mesmo em erro, marca como pronto para permitir uso local
-        setIsDataReady(true);
       }
+      if (JSON.stringify(loadedHabits) !== JSON.stringify(habits)) {
+        skipNextSaveRef.current.habits = true;
+        setHabits(loadedHabits || []);
+      }
+      if (JSON.stringify(loadedNotes) !== JSON.stringify(notes)) {
+        skipNextSaveRef.current.notes = true;
+        setNotes(loadedNotes || []);
+      }
+      
+      setLastSync(Date.now());
+    } catch (error) {
+      console.error('Erro ao sincronizar:', error);
+    } finally {
+      setIsSyncing(false);
+      setIsDataReady(true);
+    }
+  }, [user, isGuest, loadTasks, loadHabits, loadNotes, tasks, habits, notes]);
+
+  // Inicialização e Polling
+  useEffect(() => {
+    if (!isMongoLoading && (user || isGuest) && !isDataReady) {
+      refreshData(false);
+    }
+
+    // Polling a cada 30 segundos se estiver logado
+    const pollInterval = setInterval(() => {
+      if (user && !isMongoLoading && isDataReady) {
+        refreshData(true);
+      }
+    }, 30000);
+
+    // Refresh ao ganhar foco
+    const handleFocus = () => {
+      if (user && isDataReady) refreshData(true);
     };
 
-    // Só inicia se o MongoDB já terminou sua tentativa de conexão inicial (ou se for convidado)
-    if (!isMongoLoading && (user || isGuest)) {
-      initializeData();
-    }
-  }, [isMongoLoading, loadTasks, loadHabits, loadNotes, user, isGuest, isDataReady]);
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      clearInterval(pollInterval);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [isMongoLoading, user, isGuest, isDataReady, refreshData]);
 
-  // Sincronização automática - PROTEGIDA POR isDataReady
+  // Sincronização de saída (Save) - Protegida contra loops
   useEffect(() => {
     if (isDataReady && !isMongoLoading && (user || isGuest)) {
+      if (skipNextSaveRef.current.tasks) {
+        skipNextSaveRef.current.tasks = false;
+        return;
+      }
       saveTasks(tasks);
     }
   }, [tasks, saveTasks, isDataReady, isMongoLoading, user, isGuest]);
 
   useEffect(() => {
     if (isDataReady && !isMongoLoading && (user || isGuest)) {
+      if (skipNextSaveRef.current.habits) {
+        skipNextSaveRef.current.habits = false;
+        return;
+      }
       saveHabits(habits);
     }
   }, [habits, saveHabits, isDataReady, isMongoLoading, user, isGuest]);
 
   useEffect(() => {
     if (isDataReady && !isMongoLoading && (user || isGuest)) {
+      if (skipNextSaveRef.current.notes) {
+        skipNextSaveRef.current.notes = false;
+        return;
+      }
       saveNotes(notes);
     }
   }, [notes, saveNotes, isDataReady, isMongoLoading, user, isGuest]);
@@ -228,17 +273,13 @@ const App: React.FC = () => {
       
       tasks.forEach(task => {
         if (task.status === TaskStatus.TODO && task.dueDate === todayStr && !task.lastNotified) {
-          // Toast elegante (App Ativo)
           addToast("Lembrete", `A tarefa "${task.title}" vence hoje!`, "warning");
-          
-          // Push Nativo (Segundo Plano)
           if (notificationPermission === 'granted' && notificationsEnabled) {
             new Notification("RankFlow: Prazo Hoje", {
               body: task.title,
               icon: "/favicon.ico"
             });
           }
-          
           setTasks(prev => prev.map(t => t.id === task.id ? { ...t, lastNotified: Date.now() } : t));
         }
       });
@@ -424,14 +465,12 @@ const App: React.FC = () => {
     });
   }, [activeCriterion]);
 
-  // Toast Overlay
   const ToastOverlay = () => (
     <div className="fixed top-6 right-6 z-[100] flex flex-col gap-4 pointer-events-none w-full max-w-sm">
       {toasts.map(t => (
         <div key={t.id} className={`pointer-events-auto flex items-center gap-4 p-5 rounded-[2rem] border ${theme.border} ${theme.cardBg} shadow-2xl backdrop-blur-xl animate-in slide-in-from-right-10 duration-500 overflow-hidden relative group`}>
           <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${t.type === 'success' ? 'bg-emerald-500' : t.type === 'warning' ? 'bg-amber-500' : 'bg-indigo-500'}`} />
           <div className={`shrink-0 p-2.5 rounded-2xl ${t.type === 'success' ? 'bg-emerald-500/10 text-emerald-500' : t.type === 'warning' ? 'bg-amber-500/10 text-amber-500' : 'bg-indigo-500/10 text-indigo-500'}`}>
-            {/* Added logic for AlertTriangle to show on warning types */}
             {t.type === 'success' ? <Check size={20} /> : t.type === 'warning' ? <AlertTriangle size={20} /> : <Info size={20} />}
           </div>
           <div className="flex-1">
@@ -446,7 +485,6 @@ const App: React.FC = () => {
     </div>
   );
 
-  // Auth Screen
   if (!user && !isGuest) {
     return (
       <div className={`flex items-center justify-center h-screen ${theme.mainBg} overflow-hidden transition-all duration-300 relative`}>
@@ -567,6 +605,14 @@ const App: React.FC = () => {
                   <CloudOff size={14} />
                   <span className="text-[10px] font-black uppercase tracking-widest">Offline</span>
                   <button onClick={() => setShowOfflineNotice(false)} className="ml-1 p-0.5 hover:bg-amber-500/20 rounded-full"><X size={12}/></button>
+                </div>
+              )}
+              {isCloudActive && (
+                <div className={`flex items-center gap-2 px-3 py-1 bg-emerald-500/10 text-emerald-500 rounded-full border border-emerald-500/20 transition-all ${isSyncing ? 'animate-pulse' : ''}`}>
+                  <RefreshCw size={12} className={isSyncing ? 'animate-spin' : ''} />
+                  <span className="text-[9px] font-black uppercase tracking-widest">
+                    {isSyncing ? 'Sincronizando...' : `Sync: ${new Date(lastSync).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`}
+                  </span>
                 </div>
               )}
               <button 
