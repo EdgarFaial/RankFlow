@@ -64,6 +64,9 @@ const App: React.FC = () => {
   const [view, setView] = useState<AppView>('tasks');
   const [showOfflineNotice, setShowOfflineNotice] = useState(true);
   
+  // Flag crítica para evitar sobrescrever dados da nuvem com estado vazio durante o boot
+  const [isDataReady, setIsDataReady] = useState(false);
+  
   // Drag and Drop State
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
   
@@ -90,7 +93,6 @@ const App: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isHabitModalOpen, setIsHabitModalOpen] = useState(false);
   const [isNoteInputVisible, setIsNoteInputVisible] = useState(false);
-  const [isLocalDataLoading, setIsLocalDataLoading] = useState(true);
   
   const [newTitle, setNewTitle] = useState('');
   const [newDesc, setNewDesc] = useState('');
@@ -116,6 +118,7 @@ const App: React.FC = () => {
       const loggedUser = await authService.login(loginEmail, loginName);
       setUser(loggedUser);
       setIsGuest(false);
+      setIsDataReady(false); // Reset para forçar novo carregamento
       localStorage.setItem('rankflow_user', JSON.stringify(loggedUser));
       localStorage.removeItem('rankflow_is_guest');
       addToast("Sucesso", "Bem-vindo ao RankFlow!", "success");
@@ -129,6 +132,7 @@ const App: React.FC = () => {
   const handleGuestMode = () => {
     setIsGuest(true);
     setUser(null);
+    setIsDataReady(false); // Reset para forçar carregamento local
     localStorage.setItem('rankflow_is_guest', 'true');
     localStorage.removeItem('rankflow_user');
     addToast("Modo Convidado", "Dados salvos apenas neste navegador.", "info");
@@ -137,6 +141,7 @@ const App: React.FC = () => {
   const handleLogout = () => {
     setUser(null);
     setIsGuest(false);
+    setIsDataReady(false);
     localStorage.removeItem('rankflow_user');
     localStorage.removeItem('rankflow_is_guest');
     setTasks([]);
@@ -146,49 +151,57 @@ const App: React.FC = () => {
     addToast("Até logo", "Sua sessão foi encerrada.", "info");
   };
 
-  // Inicialização de dados
+  // Inicialização de dados - Unificado e Seguro
   useEffect(() => {
     const initializeData = async () => {
       if (!user && !isGuest) return;
-      setIsLocalDataLoading(true);
+      if (isDataReady) return; // Evita carregar múltiplas vezes se já estiver pronto
+
       try {
         const [loadedTasks, loadedHabits, loadedNotes] = await Promise.all([
           loadTasks(),
           loadHabits(),
           loadNotes()
         ]);
+        
+        // Atualiza os estados
         setTasks(loadedTasks || []);
         setHabits(loadedHabits || []);
         setNotes(loadedNotes || []);
+        
+        // MARCA COMO PRONTO apenas após as atualizações de estado
+        setIsDataReady(true);
       } catch (error) {
         console.error('Erro ao carregar dados:', error);
-      } finally {
-        setIsLocalDataLoading(false);
+        // Mesmo em erro, marca como pronto para permitir uso local
+        setIsDataReady(true);
       }
     };
+
+    // Só inicia se o MongoDB já terminou sua tentativa de conexão inicial (ou se for convidado)
     if (!isMongoLoading && (user || isGuest)) {
       initializeData();
     }
-  }, [isMongoLoading, loadTasks, loadHabits, loadNotes, user, isGuest]);
+  }, [isMongoLoading, loadTasks, loadHabits, loadNotes, user, isGuest, isDataReady]);
 
-  // Sincronização automática
+  // Sincronização automática - PROTEGIDA POR isDataReady
   useEffect(() => {
-    if (!isLocalDataLoading && !isMongoLoading && (user || isGuest)) {
+    if (isDataReady && !isMongoLoading && (user || isGuest)) {
       saveTasks(tasks);
     }
-  }, [tasks, saveTasks, isLocalDataLoading, isMongoLoading, user, isGuest]);
+  }, [tasks, saveTasks, isDataReady, isMongoLoading, user, isGuest]);
 
   useEffect(() => {
-    if (!isLocalDataLoading && !isMongoLoading && (user || isGuest)) {
+    if (isDataReady && !isMongoLoading && (user || isGuest)) {
       saveHabits(habits);
     }
-  }, [habits, saveHabits, isLocalDataLoading, isMongoLoading, user, isGuest]);
+  }, [habits, saveHabits, isDataReady, isMongoLoading, user, isGuest]);
 
   useEffect(() => {
-    if (!isLocalDataLoading && !isMongoLoading && (user || isGuest)) {
+    if (isDataReady && !isMongoLoading && (user || isGuest)) {
       saveNotes(notes);
     }
-  }, [notes, saveNotes, isLocalDataLoading, isMongoLoading, user, isGuest]);
+  }, [notes, saveNotes, isDataReady, isMongoLoading, user, isGuest]);
 
   useEffect(() => {
     const settings = {
@@ -488,13 +501,13 @@ const App: React.FC = () => {
     );
   }
 
-  if (user && isMongoLoading) {
+  if ((user && isMongoLoading) || (user && !isDataReady)) {
     return (
       <div className="flex items-center justify-center h-screen bg-slate-900 text-white">
         <div className="text-center">
           <Loader2 size={48} className="animate-spin mx-auto mb-4 text-indigo-500" />
           <h1 className="text-2xl font-black tracking-tighter mb-2">RankFlow</h1>
-          <p className="text-slate-400">Carregando seu workspace pessoal...</p>
+          <p className="text-slate-400">Sincronizando seu workspace...</p>
         </div>
       </div>
     );
