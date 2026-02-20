@@ -23,16 +23,17 @@ export default async function handler(req, res) {
 
     if (req.method === 'POST') {
       const notes = Array.isArray(req.body) ? req.body : [];
-      await collection.deleteMany({ userEmail });
-      
-      if (notes.length > 0) {
-        const sanitized = notes.map(({ _id, ...rest }) => ({
-          ...rest,
-          userEmail,
-          id: rest.id || (Math.random().toString(36).substr(2, 9))
-        }));
-        await collection.insertMany(sanitized);
-      }
+      if (notes.length === 0) return res.status(200).json({ success: true });
+
+      const bulkOps = notes.map(note => ({
+        updateOne: {
+          filter: { id: note.id, userEmail },
+          update: { $set: { ...note, userEmail } },
+          upsert: true
+        }
+      }));
+
+      await collection.bulkWrite(bulkOps);
       return res.status(200).json({ success: true });
     }
   } catch (error) {

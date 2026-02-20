@@ -27,6 +27,7 @@ export interface Task {
   urgencyRank: number;
   status: TaskStatus;
   createdAt: number;
+  updatedAt: number;
   dueDate?: string;
   lastNotified?: number;
   googleEventId?: string;
@@ -38,10 +39,12 @@ export interface Habit {
   frequency: HabitFrequency;
   completedDates: string[];
   createdAt: number;
+  updatedAt: number;
 }
 
 export interface Note {
   id: string;
   content: string;
   createdAt: number;
+  updatedAt: number;
 }

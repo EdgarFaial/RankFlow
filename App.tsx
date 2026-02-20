@@ -6,7 +6,7 @@ import {
   Settings as SettingsIcon, Moon, Sun, Repeat,
   TrendingUp, Award, CheckCircle, Download, Upload, Bell, BellOff, Copy, Check,
   StickyNote, ArrowRightLeft, Trash2, Calendar, LogIn, LogOut, User as UserIcon, Mail, Shield, CloudOff, Info,
-  AlertTriangle, RefreshCw
+  AlertTriangle
 } from 'lucide-react';
 import { Task, TaskStatus, RankingCriterion, AppView, Habit, HabitFrequency, Note, User } from './types';
 import { ThemeMode, ThemeName, THEME_MAP } from './themes/theme';
@@ -33,7 +33,6 @@ const themesList: { id: ThemeName; label: string; color: string }[] = [
 ];
 
 const App: React.FC = () => {
-  // Estados de Autenticação
   const [user, setUser] = useState<User | null>(() => {
     const saved = localStorage.getItem('rankflow_user');
     return saved ? JSON.parse(saved) : null;
@@ -55,34 +54,26 @@ const App: React.FC = () => {
     saveSettings
   } = useMongoDB(user);
 
-  // Estados principais
   const [tasks, setTasks] = useState<Task[]>([]);
   const [habits, setHabits] = useState<Habit[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
   const [activeCriterion, setActiveCriterion] = useState<RankingCriterion>('priorityRank');
   const [view, setView] = useState<AppView>('tasks');
   const [showOfflineNotice, setShowOfflineNotice] = useState(true);
-  const [lastSync, setLastSync] = useState<number>(Date.now());
-  const [isSyncing, setIsSyncing] = useState(false);
-  
-  // Flags para controle de sincronização
   const [isDataReady, setIsDataReady] = useState(false);
+  
   const skipNextSaveRef = useRef<{tasks: boolean, habits: boolean, notes: boolean}>({
     tasks: false,
     habits: false,
     notes: false
   });
   
-  // Drag and Drop State
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
-  
-  // Notifications & Toasts State
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>(
     typeof Notification !== 'undefined' ? Notification.permission : 'default'
   );
 
-  // Tema
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     const saved = localStorage.getItem('rankflow_mode');
     if (saved) return saved as ThemeMode;
@@ -90,12 +81,9 @@ const App: React.FC = () => {
   });
   const [themeName, setThemeName] = useState<ThemeName>(() => (localStorage.getItem('rankflow_theme_name') as ThemeName) || 'default');
   const [overrideBgUrl, setOverrideBgUrl] = useState(() => localStorage.getItem('rankflow_bg_override') || '');
-  
-  // Integrações
   const [isGCalConnected, setIsGCalConnected] = useState(() => localStorage.getItem('rankflow_gcal_connected') === 'true');
   const [notificationsEnabled, setNotificationsEnabled] = useState(() => localStorage.getItem('rankflow_notifications') === 'true');
 
-  // Modais e UI
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isHabitModalOpen, setIsHabitModalOpen] = useState(false);
   const [isNoteInputVisible, setIsNoteInputVisible] = useState(false);
@@ -157,10 +145,19 @@ const App: React.FC = () => {
     addToast("Até logo", "Sua sessão foi encerrada.", "info");
   };
 
-  // Função de sincronização periódica (Refresh)
-  const refreshData = useCallback(async (silent = true) => {
+  const mergeData = <T extends { id: string, updatedAt?: number }>(local: T[], remote: T[]): T[] => {
+    const map = new Map<string, T>();
+    [...remote, ...local].forEach(item => {
+      const existing = map.get(item.id);
+      if (!existing || (item.updatedAt || 0) > (existing.updatedAt || 0)) {
+        map.set(item.id, item);
+      }
+    });
+    return Array.from(map.values());
+  };
+
+  const refreshData = useCallback(async () => {
     if (!user && !isGuest) return;
-    if (!silent) setIsSyncing(true);
 
     try {
       const [loadedTasks, loadedHabits, loadedNotes] = await Promise.all([
@@ -169,45 +166,42 @@ const App: React.FC = () => {
         loadNotes()
       ]);
       
-      // Só atualiza se houver mudança real e marca para NÃO disparar o save back
-      if (JSON.stringify(loadedTasks) !== JSON.stringify(tasks)) {
+      const mergedTasks = mergeData(tasks, loadedTasks || []);
+      const mergedHabits = mergeData(habits, loadedHabits || []);
+      const mergedNotes = mergeData(notes, loadedNotes || []);
+
+      if (JSON.stringify(mergedTasks) !== JSON.stringify(tasks)) {
         skipNextSaveRef.current.tasks = true;
-        setTasks(loadedTasks || []);
+        setTasks(mergedTasks);
       }
-      if (JSON.stringify(loadedHabits) !== JSON.stringify(habits)) {
+      if (JSON.stringify(mergedHabits) !== JSON.stringify(habits)) {
         skipNextSaveRef.current.habits = true;
-        setHabits(loadedHabits || []);
+        setHabits(mergedHabits);
       }
-      if (JSON.stringify(loadedNotes) !== JSON.stringify(notes)) {
+      if (JSON.stringify(mergedNotes) !== JSON.stringify(notes)) {
         skipNextSaveRef.current.notes = true;
-        setNotes(loadedNotes || []);
+        setNotes(mergedNotes);
       }
       
-      setLastSync(Date.now());
     } catch (error) {
       console.error('Erro ao sincronizar:', error);
     } finally {
-      setIsSyncing(false);
       setIsDataReady(true);
     }
   }, [user, isGuest, loadTasks, loadHabits, loadNotes, tasks, habits, notes]);
 
-  // Inicialização e Polling
   useEffect(() => {
     if (!isMongoLoading && (user || isGuest) && !isDataReady) {
-      refreshData(false);
+      refreshData();
     }
-
-    // Polling a cada 30 segundos se estiver logado
     const pollInterval = setInterval(() => {
       if (user && !isMongoLoading && isDataReady) {
-        refreshData(true);
+        refreshData();
       }
     }, 30000);
 
-    // Refresh ao ganhar foco
     const handleFocus = () => {
-      if (user && isDataReady) refreshData(true);
+      if (user && isDataReady) refreshData();
     };
 
     window.addEventListener('focus', handleFocus);
@@ -217,7 +211,6 @@ const App: React.FC = () => {
     };
   }, [isMongoLoading, user, isGuest, isDataReady, refreshData]);
 
-  // Sincronização de saída (Save) - Protegida contra loops
   useEffect(() => {
     if (isDataReady && !isMongoLoading && (user || isGuest)) {
       if (skipNextSaveRef.current.tasks) {
@@ -265,7 +258,6 @@ const App: React.FC = () => {
     document.documentElement.classList.toggle('dark', themeMode === 'dark');
   }, [themeMode, themeName, overrideBgUrl, notificationsEnabled, isGCalConnected, saveSettings]);
 
-  // Monitor de Notificações
   useEffect(() => {
     const interval = setInterval(() => {
       const now = new Date();
@@ -280,7 +272,7 @@ const App: React.FC = () => {
               icon: "/favicon.ico"
             });
           }
-          setTasks(prev => prev.map(t => t.id === task.id ? { ...t, lastNotified: Date.now() } : t));
+          setTasks(prev => prev.map(t => t.id === task.id ? { ...t, lastNotified: Date.now(), updatedAt: Date.now() } : t));
         }
       });
     }, 60000);
@@ -295,7 +287,6 @@ const App: React.FC = () => {
     if (permission === 'granted') {
       setNotificationsEnabled(true);
       addToast("Notificações Ativas", "Você receberá alertas de prazos.", "success");
-      new Notification("RankFlow", { body: "Notificações do sistema ativadas com sucesso." });
     } else {
       addToast("Permissão Negada", "Não poderemos alertar você via navegador.", "warning");
     }
@@ -325,7 +316,6 @@ const App: React.FC = () => {
     return result.sort((a, b) => a[activeCriterion] - b[activeCriterion]);
   }, [tasks, activeCriterion]);
 
-  // Drag and Drop Logic
   const handleTaskDragStart = (id: string) => setDraggedTaskId(id);
 
   const handleTaskDrop = (targetId: string) => {
@@ -347,7 +337,7 @@ const App: React.FC = () => {
       return prev.map(task => {
         const newIndexInSorted = currentList.findIndex(t => t.id === task.id);
         if (newIndexInSorted !== -1) {
-          return { ...task, [activeCriterion]: newIndexInSorted + 1 };
+          return { ...task, [activeCriterion]: newIndexInSorted + 1, updatedAt: Date.now() };
         }
         return task;
       });
@@ -389,6 +379,7 @@ const App: React.FC = () => {
 
   const addTask = useCallback(async () => {
     if (!newTitle.trim()) return;
+    const now = Date.now();
     const newTask: Task = {
       id: Math.random().toString(36).substr(2, 9),
       title: newTitle,
@@ -397,7 +388,8 @@ const App: React.FC = () => {
       difficultyRank: tasks.length + 1,
       urgencyRank: tasks.length + 1,
       status: TaskStatus.TODO,
-      createdAt: Date.now(),
+      createdAt: now,
+      updatedAt: now,
       dueDate: newDueDate || undefined
     };
     setTasks(prev => [...prev, newTask]);
@@ -409,17 +401,19 @@ const App: React.FC = () => {
   }, [newTitle, newDesc, newDueDate, tasks.length]);
 
   const toggleStatus = (id: string) => {
-    setTasks(prev => prev.map(t => t.id === id ? {...t, status: t.status === TaskStatus.DONE ? TaskStatus.TODO : TaskStatus.DONE} : t));
+    setTasks(prev => prev.map(t => t.id === id ? {...t, status: t.status === TaskStatus.DONE ? TaskStatus.TODO : TaskStatus.DONE, updatedAt: Date.now()} : t));
   };
 
   const addHabit = () => {
     if (!habitTitle.trim()) return;
+    const now = Date.now();
     const newHabit: Habit = {
       id: Math.random().toString(36).substr(2, 9),
       title: habitTitle,
       frequency: habitFreq,
       completedDates: [],
-      createdAt: Date.now()
+      createdAt: now,
+      updatedAt: now
     };
     setHabits(prev => [...prev, newHabit]);
     setHabitTitle('');
@@ -429,7 +423,7 @@ const App: React.FC = () => {
 
   const toggleHabit = (id: string) => {
     const today = new Date().toISOString().split('T')[0];
-    setHabits(prev => prev.map(h => h.id === id ? { ...h, completedDates: h.completedDates.includes(today) ? h.completedDates.filter(d => d !== today) : [...h.completedDates, today] } : h));
+    setHabits(prev => prev.map(h => h.id === id ? { ...h, completedDates: h.completedDates.includes(today) ? h.completedDates.filter(d => d !== today) : [...h.completedDates, today], updatedAt: Date.now() } : h));
   };
 
   const deleteHabit = (id: string) => {
@@ -439,7 +433,8 @@ const App: React.FC = () => {
 
   const addNote = () => {
     if (!newNoteContent.trim()) return;
-    const newNote: Note = { id: Math.random().toString(36).substr(2, 9), content: newNoteContent, createdAt: Date.now() };
+    const now = Date.now();
+    const newNote: Note = { id: Math.random().toString(36).substr(2, 9), content: newNoteContent, createdAt: now, updatedAt: now };
     setNotes(prev => [newNote, ...prev]);
     setNewNoteContent('');
     addToast("Nota Salva", "Sua ideia está protegida.", "success");
@@ -456,8 +451,9 @@ const App: React.FC = () => {
       const index = currentTasks.findIndex(t => t.id === taskId);
       const targetIndex = direction === 'up' ? index - 1 : index + 1;
       if (index === -1 || targetIndex < 0 || targetIndex >= currentTasks.length) return prev;
-      const taskA = { ...currentTasks[index] };
-      const taskB = { ...currentTasks[targetIndex] };
+      const now = Date.now();
+      const taskA = { ...currentTasks[index], updatedAt: now };
+      const taskB = { ...currentTasks[targetIndex], updatedAt: now };
       const tempRank = taskA[activeCriterion];
       taskA[activeCriterion] = taskB[activeCriterion];
       taskB[activeCriterion] = tempRank;
@@ -605,14 +601,6 @@ const App: React.FC = () => {
                   <CloudOff size={14} />
                   <span className="text-[10px] font-black uppercase tracking-widest">Offline</span>
                   <button onClick={() => setShowOfflineNotice(false)} className="ml-1 p-0.5 hover:bg-amber-500/20 rounded-full"><X size={12}/></button>
-                </div>
-              )}
-              {isCloudActive && (
-                <div className={`flex items-center gap-2 px-3 py-1 bg-emerald-500/10 text-emerald-500 rounded-full border border-emerald-500/20 transition-all ${isSyncing ? 'animate-pulse' : ''}`}>
-                  <RefreshCw size={12} className={isSyncing ? 'animate-spin' : ''} />
-                  <span className="text-[9px] font-black uppercase tracking-widest">
-                    {isSyncing ? 'Sincronizando...' : `Sync: ${new Date(lastSync).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`}
-                  </span>
                 </div>
               )}
               <button 

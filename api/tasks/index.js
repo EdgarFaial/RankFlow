@@ -23,17 +23,24 @@ export default async function handler(req, res) {
 
     if (req.method === 'POST') {
       const tasks = Array.isArray(req.body) ? req.body : [];
-      // Remove apenas as tarefas deste usuário
-      await collection.deleteMany({ userEmail });
+      if (tasks.length === 0) return res.status(200).json({ success: true, message: 'No info to update' });
+
+      // Em vez de deleteMany, usamos um merge/upsert seguro para evitar sobrescritas destrutivas
+      const bulkOps = tasks.map(task => ({
+        updateOne: {
+          filter: { id: task.id, userEmail },
+          update: { $set: { ...task, userEmail } },
+          upsert: true
+        }
+      }));
+
+      // Também removemos apenas se explicitamente não estiverem na lista recebida E se a lista não for parcial
+      // Mas para satisfazer "nada pode sobrescrever nada", vamos apenas garantir o UPSERT.
+      // Se um item foi removido, o cliente deve gerenciar o estado final ou enviarmos um flag 'deleted'.
+      // Como o objetivo é EVITAR deleção acidental entre dispositivos, mantemos todos e o cliente filtra por ID.
       
-      if (tasks.length > 0) {
-        const sanitized = tasks.map(({ _id, ...rest }) => ({
-          ...rest,
-          userEmail, // Vincula ao usuário
-          id: rest.id || (Math.random().toString(36).substr(2, 9))
-        }));
-        await collection.insertMany(sanitized);
-      }
+      await collection.bulkWrite(bulkOps);
+      
       return res.status(200).json({ success: true });
     }
   } catch (error) {

@@ -23,16 +23,17 @@ export default async function handler(req, res) {
 
     if (req.method === 'POST') {
       const habits = Array.isArray(req.body) ? req.body : [];
-      await collection.deleteMany({ userEmail });
-      
-      if (habits.length > 0) {
-        const sanitized = habits.map(({ _id, ...rest }) => ({
-          ...rest,
-          userEmail,
-          id: rest.id || (Math.random().toString(36).substr(2, 9))
-        }));
-        await collection.insertMany(sanitized);
-      }
+      if (habits.length === 0) return res.status(200).json({ success: true });
+
+      const bulkOps = habits.map(habit => ({
+        updateOne: {
+          filter: { id: habit.id, userEmail },
+          update: { $set: { ...habit, userEmail } },
+          upsert: true
+        }
+      }));
+
+      await collection.bulkWrite(bulkOps);
       return res.status(200).json({ success: true });
     }
   } catch (error) {
